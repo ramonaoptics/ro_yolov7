@@ -26,7 +26,7 @@ from copy import deepcopy
 from torchvision.utils import save_image
 from torchvision.ops import roi_pool, roi_align, ps_roi_pool, ps_roi_align
 
-from .general import check_requirements, xyxy2xywh, xywh2xyxy, xywhn2xyxy, xyn2xy, segment2box, segments2boxes, \
+from .general import xyxy2xywh, xywh2xyxy, xywhn2xyxy, xyn2xy, segment2box, segments2boxes, \
     resample_segments, clean_str
 from .torch_utils import torch_distributed_zero_first
 
@@ -283,7 +283,6 @@ class LoadStreams:  # multiple IP or RTSP cameras
             print(f'{i + 1}/{n}: {s}... ', end='')
             url = eval(s) if s.isnumeric() else s
             if 'youtube.com/' in str(url) or 'youtu.be/' in str(url):  # if source is YouTube video
-                check_requirements(('pafy', 'youtube_dl'))
                 import pafy
                 url = pafy.new(url).getbest(preftype="mp4").url
             cap = cv2.VideoCapture(url)

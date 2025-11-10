@@ -1,7 +1,6 @@
 # YOLOR general utils
 
 import glob
-import logging
 import math
 import os
 import platform
@@ -20,12 +19,6 @@ import yaml
 from .google_utils import gsutil_getsize
 from .metrics import fitness
 from .torch_utils import init_torch_seeds
-
-
-def set_logging(rank=-1):
-    logging.basicConfig(
-        format="%(message)s",
-        level=logging.INFO if rank in [-1, 0] else logging.WARN)
 
 
 def init_seeds(seed=0):

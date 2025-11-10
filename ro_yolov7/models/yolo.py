@@ -8,7 +8,7 @@ import torch
 from .common import *
 from .experimental import *
 from ..utils.autoanchor import check_anchor_order
-from ..utils.general import make_divisible, check_file, set_logging
+from ..utils.general import make_divisible, check_file
 from ..utils.torch_utils import time_synchronized, fuse_conv_and_bn, model_info, scale_img, initialize_weights, \
     select_device, copy_attr
 from ..utils.loss import SigmoidBin
@@ -819,7 +819,6 @@ if __name__ == '__main__':
     parser.add_argument('--profile', action='store_true', help='profile model speed')
     opt = parser.parse_args()
     opt.cfg = check_file(opt.cfg)  # check file
-    set_logging()
     device = select_device(opt.device)
 
     # Create model

@@ -10,13 +10,10 @@ from pathlib import Path
 import torch
 
 from .models.yolo import Model
-from .utils.general import check_requirements, set_logging
 from .utils.google_utils import attempt_download
 from .utils.torch_utils import select_device
 
 dependencies = ['torch', 'yaml']
-check_requirements(Path(__file__).parent.parent / 'requirements.txt', exclude=('pycocotools', 'thop'))
-set_logging()
 
 
 def create(name, pretrained, channels, classes, autoshape):
