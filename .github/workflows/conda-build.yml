@@ -1,0 +1,29 @@
+name: Conda Build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v5
+    - uses: conda-incubator/setup-miniconda@v3
+      with:
+        activate-environment: foo
+        python-version: 3.12
+        channels: conda-forge
+        allow-softlinks: true
+        channel-priority: flexible
+        show-channel-urls: true
+        use-only-tar-bz2: true
+    - name: Install conda-build
+      run: |
+        conda install -y conda-build
+
+    - name: Build conda package
+      run: |
+        conda build recipe
