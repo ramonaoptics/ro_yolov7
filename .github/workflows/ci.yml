@@ -27,7 +27,15 @@ jobs:
       run: |
         pip install -e .
 
+    - name: Install pytest
+      run: |
+        pip install pytest
+
     - name: Test import
       run: |
         python -c "import ro_yolov7; print(f'Successfully imported ro_yolov7 version {ro_yolov7.__version__}')"
         python -c "from ro_yolov7 import Model, attempt_load; print('Successfully imported Model and attempt_load')"
+
+    - name: Run tests
+      run: |
+        pytest tests/

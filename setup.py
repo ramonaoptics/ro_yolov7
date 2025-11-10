@@ -25,7 +25,7 @@ setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/WongKinYiu/yolov7",
-    packages=find_packages(),
+    packages=find_packages(exclude=['tests', 'tests.*']),
     package_data={
         "ro_yolov7": [
             "cfg/**/*.yaml",
