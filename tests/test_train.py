@@ -4,13 +4,10 @@ from pathlib import Path
 import numpy as np
 import cv2
 import yaml
-import argparse
 import subprocess
 import pytest
 
 import ro_yolov7
-from ro_yolov7.train import train
-from ro_yolov7.utils.torch_utils import select_device
 
 
 def test_train_importable():
