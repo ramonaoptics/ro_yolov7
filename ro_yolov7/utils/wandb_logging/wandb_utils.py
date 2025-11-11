@@ -8,9 +8,9 @@ import torch
 import yaml
 from tqdm import tqdm
 
-from ..datasets import LoadImagesAndLabels
-from ..datasets import img2label_paths
-from ..general import colorstr, xywh2xyxy, check_dataset
+from ro_yolov7.utils.datasets import LoadImagesAndLabels
+from ro_yolov7.utils.datasets import img2label_paths
+from ro_yolov7.utils.general import colorstr, xywh2xyxy, check_dataset
 
 try:
     import wandb

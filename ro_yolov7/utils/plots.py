@@ -16,8 +16,8 @@ import yaml
 from PIL import Image, ImageDraw, ImageFont
 from scipy.signal import butter, filtfilt
 
-from .general import xywh2xyxy, xyxy2xywh
-from .metrics import fitness
+from ro_yolov7.utils.general import xywh2xyxy, xyxy2xywh
+from ro_yolov7.utils.metrics import fitness
 
 # Settings
 # There are a few usages of matplotlib.rc and matplotlib.use in the code

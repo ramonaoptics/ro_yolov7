@@ -16,9 +16,9 @@ import torch
 import torchvision
 import yaml
 
-from .google_utils import gsutil_getsize
-from .metrics import fitness
-from .torch_utils import init_torch_seeds
+from ro_yolov7.utils.google_utils import gsutil_getsize
+from ro_yolov7.utils.metrics import fitness
+from ro_yolov7.utils.torch_utils import init_torch_seeds
 
 
 def init_seeds(seed=0):

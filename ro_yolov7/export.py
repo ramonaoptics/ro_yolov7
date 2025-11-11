@@ -7,12 +7,12 @@ import torch
 import torch.nn as nn
 from torch.utils.mobile_optimizer import optimize_for_mobile
 
-from . import models
-from .models.experimental import attempt_load, End2End
-from .utils.activations import Hardswish, SiLU
-from .utils.general import check_img_size
-from .utils.torch_utils import select_device
-from .utils.add_nms import RegisterNMS
+from ro_yolov7 import models
+from ro_yolov7.models.experimental import attempt_load, End2End
+from ro_yolov7.utils.activations import Hardswish, SiLU
+from ro_yolov7.utils.general import check_img_size
+from ro_yolov7.utils.torch_utils import select_device
+from ro_yolov7.utils.add_nms import RegisterNMS
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

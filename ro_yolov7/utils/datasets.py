@@ -4,11 +4,9 @@ import glob
 import logging
 import math
 import os
-import pickle
 import random
 import shutil
 import time
-from copy import deepcopy
 from itertools import repeat
 from multiprocessing.pool import ThreadPool
 from pathlib import Path
@@ -21,19 +19,16 @@ import torch
 import torch.nn.functional as F
 from PIL import ExifTags, Image
 from torch.utils.data import Dataset
-from torchvision.ops import ps_roi_align, ps_roi_pool, roi_align, roi_pool
 import torchvision.transforms.v2 as v2
-from torchvision.transforms import InterpolationMode
 from torchvision.tv_tensors import Image as TvImage, Mask as TvMask
 
 
 # from pycocotools import mask as maskUtils
-from torchvision.utils import save_image
 from tqdm import tqdm
 
-from .general import xyxy2xywh, xywh2xyxy, xywhn2xyxy, xyn2xy, segment2box, segments2boxes, \
+from ro_yolov7.utils.general import xyxy2xywh, xywh2xyxy, xywhn2xyxy, xyn2xy, segment2box, segments2boxes, \
     resample_segments, clean_str
-from .torch_utils import torch_distributed_zero_first
+from ro_yolov7.utils.torch_utils import torch_distributed_zero_first
 
 # Parameters
 help_url = "https://github.com/ultralytics/yolov5/wiki/Train-Custom-Data"

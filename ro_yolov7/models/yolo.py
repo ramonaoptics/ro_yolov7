@@ -5,13 +5,13 @@ from copy import deepcopy
 
 logger = logging.getLogger(__name__)
 import torch
-from .common import *
-from .experimental import *
-from ..utils.autoanchor import check_anchor_order
-from ..utils.general import make_divisible, check_file
-from ..utils.torch_utils import time_synchronized, fuse_conv_and_bn, model_info, scale_img, initialize_weights, \
+from ro_yolov7.models.common import *
+from ro_yolov7.models.experimental import *
+from ro_yolov7.utils.autoanchor import check_anchor_order
+from ro_yolov7.utils.general import make_divisible, check_file
+from ro_yolov7.utils.torch_utils import time_synchronized, fuse_conv_and_bn, model_info, scale_img, initialize_weights, \
     select_device, copy_attr
-from ..utils.loss import SigmoidBin
+from ro_yolov7.utils.loss import SigmoidBin
 
 try:
     import thop  # for FLOPS computation
