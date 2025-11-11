@@ -24,6 +24,7 @@ def test_test_importable():
 
 @pytest.fixture
 def ml_dataset():
+    """Fixture to create a minimal dataset with data.yaml for testing"""
     temp_dir = tempfile.mkdtemp()
     dataset_dir = Path(temp_dir) / "test_dataset"
 
@@ -44,15 +45,6 @@ def ml_dataset():
             # Single object of class 0, centered, taking 20% of image
             f.write('0 0.5 0.5 0.2 0.2\n')
 
-    yield dataset_dir
-
-    # Cleanup
-    shutil.rmtree(temp_dir, ignore_errors=True)
-
-
-def test_train_one_epoch(ml_dataset):
-    dataset_dir = ml_dataset
-
     # Create data.yaml file
     data_yaml = dataset_dir / 'data.yaml'
     data_config = {
@@ -60,11 +52,19 @@ def test_train_one_epoch(ml_dataset):
         'val': str(dataset_dir / 'val'),
         'test': str(dataset_dir / 'test'),
         'nc': 1,  # number of classes
-        'names': ['object']  # class names
+        'names': ['testing']  # class names
     }
     with open(data_yaml, 'w') as f:
         yaml.dump(data_config, f)
 
+    yield dataset_dir
+
+    shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def test_train_one_epoch(ml_dataset):
+    dataset_dir = ml_dataset
+    data_yaml = dataset_dir / 'data.yaml'
     cfg_yaml = Path(ro_yolov7.__file__).parent / 'cfg' / 'training' / 'yolov7-tiny.yaml'
     hyp_yaml = Path(ro_yolov7.__file__).parent / 'data' / 'hyp.scratch.tiny.yaml'
 
@@ -116,29 +116,13 @@ def test_train_one_epoch(ml_dataset):
         hyp = yaml.load(f, Loader=yaml.SafeLoader)
 
     device = select_device(opt.device, batch_size=opt.batch_size)
-
-    # Run training for 1 epoch
     results = train(hyp, opt, device, tb_writer=None)
-
-    # Basic assertion to ensure training completed
     assert results is not None, "Training should return results"
 
 
 def test_training_from_subprocess(ml_dataset):
     dataset_dir = ml_dataset
-
-    # Create data.yaml file
     data_yaml = dataset_dir / 'data.yaml'
-    data_config = {
-        'train': str(dataset_dir / 'train'),
-        'val': str(dataset_dir / 'val'),
-        'test': str(dataset_dir / 'test'),
-        'nc': 1,  # number of classes
-        'names': ['testing']  # class names
-    }
-    with open(data_yaml, 'w') as f:
-        yaml.dump(data_config, f)
-
     cfg_path = Path(ro_yolov7.__file__).parent / 'cfg' / 'training' / 'yolov7-tiny.yaml'
     hyp_path = Path(ro_yolov7.__file__).parent / 'data' / 'hyp.scratch.tiny.yaml'
     train_script = Path(ro_yolov7.__file__).parent / 'train.py'
@@ -146,22 +130,19 @@ def test_training_from_subprocess(ml_dataset):
     cmd = [
         'python',
         str(train_script),
-        '--weights', '',  # Empty string to train from scratch
+        '--weights', '',
         '--cfg', str(cfg_path),
         '--data', str(data_yaml),
         '--hyp', str(hyp_path),
-        '--epochs', '1',  # Just 1 epoch for testing
+        '--epochs', '1',
         '--batch-size', '1',
         '--img-size', '640', '640',
-        '--device', 'cpu',  # Use CPU for testing
+        '--device', 'cpu',
         '--workers', '0',
         '--name', 'subprocess_test',
         '--project', str(dataset_dir / 'runs'),
-        '--exist-ok',
-        '--single-cls'  # Single class training
     ]
 
-    # Run the training command via subprocess
     result = subprocess.run(
         cmd,
         capture_output=True,
@@ -169,14 +150,12 @@ def test_training_from_subprocess(ml_dataset):
         timeout=300  # 5 minute timeout
     )
 
-    # Check that training completed successfully
-    assert result.returncode == 0, f"Training failed with return code {result.returncode}\nStderr: {result.stderr}"
+    assert result.returncode == 0, \
+        f"Training failed with return code {result.returncode}\nStderr: {result.stderr}"
 
-    # Check that expected output files were created
     weights_dir = dataset_dir / 'runs' / 'subprocess_test' / 'weights'
     assert weights_dir.exists(), "Weights directory was not created"
 
-    # Check for last.pt (should exist even with nosave=False by default)
     last_pt = weights_dir / 'last.pt'
     best_pt = weights_dir / 'best.pt'
     assert last_pt.exists() or best_pt.exists(), "No model weights were saved"
