@@ -1,3 +1,4 @@
+{% set python_min = "3.10" %}
 package:
   name: ro-yolov7
   version: "0.1.0"
@@ -12,11 +13,11 @@ build:
 
 requirements:
   build:
-    - python 3.10
+    - python {{ python_min }}
     - pip
     - setuptools
   run:
-    - python >=3.10
+    - python >={{ python_min }}
     - matplotlib-base
     - numpy
     - opencv
@@ -31,7 +32,7 @@ requirements:
 test:
   requires:
     - pip
-    - python 3.10
+    - python {{ python_min }}.*
   commands:
     - pip check
   imports:
