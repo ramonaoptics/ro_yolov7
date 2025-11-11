@@ -7,12 +7,12 @@ sys.path.append("./")  # to run '$ python *.py' files in subdirectories
 logger = logging.getLogger(__name__)
 import torch
 
-from ml_pipeline.yolo.models.common import *
-from ml_pipeline.yolo.models.experimental import *
-from ml_pipeline.yolo.utils.autoanchor import check_anchor_order
-from ml_pipeline.yolo.utils.general import check_file, make_divisible, set_logging
-from ml_pipeline.yolo.utils.loss import SigmoidBin
-from ml_pipeline.yolo.utils.torch_utils import (
+from models.common import *
+from models.experimental import *
+from utils.autoanchor import check_anchor_order
+from utils.general import check_file, make_divisible, set_logging
+from utils.loss import SigmoidBin
+from utils.torch_utils import (
     copy_attr,
     fuse_conv_and_bn,
     initialize_weights,
