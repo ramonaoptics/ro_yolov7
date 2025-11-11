@@ -26,4 +26,4 @@ jobs:
 
     - name: Build conda package
       run: |
-        conda build recipe
+        conda build recipe -c local
