@@ -75,6 +75,7 @@ def test_training_from_subprocess(ml_dataset):
         '--epochs', '1',
         '--batch-size', '1',
         '--img-size', '640', '640',
+        # we test on cpu here to ensure CI compatibility
         '--device', 'cpu',
         '--workers', '4',
         '--name', 'subprocess_test',
