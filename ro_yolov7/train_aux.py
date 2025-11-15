@@ -20,19 +20,19 @@ from torch.cuda import amp
 from torch.nn.parallel import DistributedDataParallel as DDP
 from tqdm import tqdm
 
-from . import test  # import test.py to get mAP after each epoch
-from .models.experimental import attempt_load
-from .models.yolo import Model
-from .utils.autoanchor import check_anchors
-from .utils.datasets import create_dataloader
-from .utils.general import labels_to_class_weights, increment_path, labels_to_image_weights, init_seeds, \
-    fitness, strip_optimizer, get_latest_run, check_dataset, check_file, check_git_status, check_img_size, \
+from ro_yolov7 import test  # import test.py to get mAP after each epoch
+from ro_yolov7.models.experimental import attempt_load
+from ro_yolov7.models.yolo import Model
+from ro_yolov7.utils.autoanchor import check_anchors
+from ro_yolov7.utils.datasets import create_dataloader
+from ro_yolov7.utils.general import labels_to_class_weights, increment_path, labels_to_image_weights, init_seeds, \
+    fitness, strip_optimizer, get_latest_run, check_dataset, check_file, check_img_size, \
     print_mutation, one_cycle, colorstr
-from .utils.google_utils import attempt_download
-from .utils.loss import ComputeLoss, ComputeLossAuxOTA
-from .utils.plots import plot_images, plot_labels, plot_results, plot_evolution
-from .utils.torch_utils import ModelEMA, select_device, intersect_dicts, torch_distributed_zero_first, is_parallel
-from .utils.wandb_logging.wandb_utils import WandbLogger, check_wandb_resume
+from ro_yolov7.utils.google_utils import attempt_download
+from ro_yolov7.utils.loss import ComputeLoss, ComputeLossAuxOTA
+from ro_yolov7.utils.plots import plot_images, plot_labels, plot_results, plot_evolution
+from ro_yolov7.utils.torch_utils import ModelEMA, select_device, intersect_dicts, torch_distributed_zero_first, is_parallel
+from ro_yolov7.utils.wandb_logging.wandb_utils import WandbLogger, check_wandb_resume
 
 logger = logging.getLogger(__name__)
 
@@ -562,8 +562,6 @@ if __name__ == '__main__':
     # Set DDP variables
     opt.world_size = int(os.environ['WORLD_SIZE']) if 'WORLD_SIZE' in os.environ else 1
     opt.global_rank = int(os.environ['RANK']) if 'RANK' in os.environ else -1
-    #if opt.global_rank in [-1, 0]:
-    #    check_git_status()
 
     # Resume
     wandb_run = check_wandb_resume(opt)

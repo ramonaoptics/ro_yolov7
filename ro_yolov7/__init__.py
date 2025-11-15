@@ -8,8 +8,7 @@ https://arxiv.org/abs/2207.02696
 __version__ = "0.1.0"
 __author__ = "Chien-Yao Wang, Alexey Bochkovskiy, Hong-Yuan Mark Liao"
 
-from .models.yolo import Model
-from .models.experimental import attempt_load
+from ro_yolov7.models.yolo import Model
+from ro_yolov7.models.experimental import attempt_load
 
 __all__ = ["Model", "attempt_load", "__version__"]
-

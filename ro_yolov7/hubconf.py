@@ -9,9 +9,9 @@ from pathlib import Path
 
 import torch
 
-from .models.yolo import Model
-from .utils.google_utils import attempt_download
-from .utils.torch_utils import select_device
+from ro_yolov7.models.yolo import Model
+from ro_yolov7.utils.google_utils import attempt_download
+from ro_yolov7.utils.torch_utils import select_device
 
 dependencies = ['torch', 'yaml']
 

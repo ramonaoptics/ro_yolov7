@@ -19,7 +19,7 @@ requirements = [
 
 setup(
     name="ro-yolov7",
-    version="0.1.0",
+    version="0.2.0",
     author="Chien-Yao Wang, Alexey Bochkovskiy, Hong-Yuan Mark Liao",
     description="YOLOv7: Trainable bag-of-freebies sets new state-of-the-art for real-time object detectors",
     long_description=long_description,
