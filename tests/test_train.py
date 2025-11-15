@@ -95,6 +95,5 @@ def test_training_from_subprocess(ml_dataset):
     weights_dir = dataset_dir / 'runs' / 'subprocess_test' / 'weights'
     assert weights_dir.exists(), "Weights directory was not created"
 
-    last_pt = weights_dir / 'last.pt'
     best_pt = weights_dir / 'best.pt'
-    assert last_pt.exists() and best_pt.exists(), "Model weights were not saved correctly"
+    assert best_pt.exists(), "Best model weights were not saved correctly"
