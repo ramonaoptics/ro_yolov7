@@ -1605,7 +1605,7 @@ class Albumentations:
                 A.Blur(p=0.01),
                 A.MedianBlur(p=0.01),
                 A.ToGray(p=0.01),
-                A.ImageCompression(quality_lower=75, p=0.01),
+                A.ImageCompression(quality_range=(75, 100), p=0.01),
             ],
             bbox_params=A.BboxParams(
                 format="pascal_voc", label_fields=["class_labels"]
