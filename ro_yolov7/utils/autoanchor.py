@@ -2,6 +2,7 @@
 
 import numpy as np
 import torch
+import warnings
 import yaml
 from scipy.cluster.vq import kmeans
 from tqdm import tqdm
@@ -23,7 +24,7 @@ def check_anchor_order(m):
 def check_anchors(dataset, model, thr=4.0, imgsz=640):
     # Check anchor fit to data, recompute if necessary
     prefix = colorstr("autoanchor: ")
-    print(f"\n{prefix}Analyzing anchors... ", end="")
+    warnings.warn(f"\n{prefix}Analyzing anchors... ", stacklevel=2)
     m = (
         model.module.model[-1] if hasattr(model, "module") else model.model[-1]
     )  # Detect()
@@ -43,16 +44,16 @@ def check_anchors(dataset, model, thr=4.0, imgsz=640):
 
     anchors = m.anchor_grid.clone().cpu().view(-1, 2)  # current anchors
     bpr, aat = metric(anchors)
-    print(f"anchors/target = {aat:.2f}, Best Possible Recall (BPR) = {bpr:.4f}", end="")
+    warnings.warn(f"anchors/target = {aat:.2f}, Best Possible Recall (BPR) = {bpr:.4f}", stacklevel=2)
     if bpr < 0.98:  # threshold to recompute
-        print(". Attempting to improve anchors, please wait...")
+        warnings.warn(". Attempting to improve anchors, please wait...", stacklevel=2)
         na = m.anchor_grid.numel() // 2  # number of anchors
         try:
             anchors = kmean_anchors(
                 dataset, n=na, img_size=imgsz, thr=thr, gen=1000, verbose=False
             )
         except Exception as e:
-            print(f"{prefix}ERROR: {e}")
+            warnings.warn(f"{prefix}ERROR: {e}", stacklevel=2)
         new_bpr = metric(anchors)[0]
         if new_bpr > bpr:  # replace anchors
             anchors = torch.tensor(anchors, device=m.anchors.device).type_as(m.anchors)
@@ -61,14 +62,15 @@ def check_anchors(dataset, model, thr=4.0, imgsz=640):
             m.anchors[:] = anchors.clone().view_as(m.anchors) / m.stride.to(
                 m.anchors.device
             ).view(-1, 1, 1)  # loss
-            print(
-                f"{prefix}New anchors saved to model. Update model *.yaml to use these anchors in the future."
+            warnings.warn(
+                f"{prefix}New anchors saved to model. Update model *.yaml to use these anchors in the future.",
+                stacklevel=2
             )
         else:
-            print(
-                f"{prefix}Original anchors better than new anchors. Proceeding with original anchors."
+            warnings.warn(
+                f"{prefix}Original anchors better than new anchors. Proceeding with original anchors.",
+                stacklevel=2
             )
-    print("")  # newline
 
 
 def kmean_anchors(
