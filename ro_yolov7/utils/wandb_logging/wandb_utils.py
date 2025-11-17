@@ -149,10 +149,10 @@ class WandbLogger:
                     f"https://wandb.ai/ramona_optics/YOLOR/runs/{wandb.run.id}"
                 )
             else:
-                print("YOLO_WANDB_URL was not logged.")
+                warn("YOLO_WANDB_URL was not logged.", stacklevel=2)
                 os.environ["YOLO_WANDB_URL"] = ""
         except:
-            print("YOLO_WANDB_URL was not logged.")
+            warn("YOLO_WANDB_URL was not logged.", stacklevel=2)
             os.environ["YOLO_WANDB_URL"] = ""
 
     def check_and_upload_dataset(self, opt):
@@ -163,7 +163,7 @@ class WandbLogger:
             opt.single_cls,
             "YOLOR" if opt.project == "runs/train" else Path(opt.project).stem,
         )
-        print("Created dataset config file ", config_path)
+        warn(f"Created dataset config file {config_path}", stacklevel=2)
         with open(config_path) as f:
             wandb_data_dict = yaml.load(f, Loader=yaml.SafeLoader)
         return wandb_data_dict
@@ -285,7 +285,7 @@ class WandbLogger:
                 "best" if best_model else "",
             ],
         )
-        print("Saving model artifact on epoch ", epoch + 1)
+        warn(f"Saving model artifact on epoch {epoch + 1}", stacklevel=2)
 
     def log_dataset_artifact(
         self, data_file, single_cls, project, overwrite_config=False
@@ -332,7 +332,7 @@ class WandbLogger:
 
     def map_val_table_path(self):
         self.val_table_map = {}
-        print("Mapping dataset")
+        warn("Mapping dataset", stacklevel=2)
         for i, data in enumerate(tqdm(self.val_table.data)):
             self.val_table_map[data[3]] = data[0]
 

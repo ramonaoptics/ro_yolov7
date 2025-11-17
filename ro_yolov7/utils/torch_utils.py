@@ -7,6 +7,7 @@ import os
 import platform
 import subprocess
 import time
+import warnings
 from contextlib import contextmanager
 from copy import deepcopy
 from pathlib import Path
@@ -115,13 +116,13 @@ def profile(x, ops, n=100, device=None):
     device = device or torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     x = x.to(device)
     x.requires_grad = True
-    print(
-        torch.__version__,
-        device.type,
-        torch.cuda.get_device_properties(0) if device.type == "cuda" else "",
+    warnings.warn(
+        f"{torch.__version__} {device.type} {torch.cuda.get_device_properties(0) if device.type == 'cuda' else ''}",
+        stacklevel=2
     )
-    print(
-        f"\n{'Params':>12s}{'GFLOPS':>12s}{'forward (ms)':>16s}{'backward (ms)':>16s}{'input':>24s}{'output':>24s}"
+    warnings.warn(
+        f"\n{'Params':>12s}{'GFLOPS':>12s}{'forward (ms)':>16s}{'backward (ms)':>16s}{'input':>24s}{'output':>24s}",
+        stacklevel=2
     )
     for m in ops if isinstance(ops, list) else [ops]:
         m = m.to(device) if hasattr(m, "to") else m  # device
@@ -157,8 +158,9 @@ def profile(x, ops, n=100, device=None):
             if isinstance(m, nn.Module)
             else 0
         )  # parameters
-        print(
-            f"{p:12}{flops:12.4g}{dtf:16.4g}{dtb:16.4g}{str(s_in):>24s}{str(s_out):>24s}"
+        warnings.warn(
+            f"{p:12}{flops:12.4g}{dtf:16.4g}{dtb:16.4g}{str(s_in):>24s}{str(s_out):>24s}",
+            stacklevel=2
         )
 
 
@@ -258,13 +260,14 @@ def model_info(model, verbose=False, img_size=640):
         x.numel() for x in model.parameters() if x.requires_grad
     )  # number gradients
     if verbose:
-        print(
+        warnings.warn(
             "%5s %40s %9s %12s %20s %10s %10s"
-            % ("layer", "name", "gradient", "parameters", "shape", "mu", "sigma")
+            % ("layer", "name", "gradient", "parameters", "shape", "mu", "sigma"),
+            stacklevel=2
         )
         for i, (name, p) in enumerate(model.named_parameters()):
             name = name.replace("module_list.", "")
-            print(
+            warnings.warn(
                 "%5g %40s %9s %12g %20s %10.3g %10.3g"
                 % (
                     i,
@@ -274,7 +277,8 @@ def model_info(model, verbose=False, img_size=640):
                     list(p.shape),
                     p.mean(),
                     p.std(),
-                )
+                ),
+                stacklevel=2
             )
 
     try:  # FLOPS

@@ -539,6 +539,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         )  # found, missing, empty, corrupted, total
         if exists:
             d = f"Scanning '{cache_path}' images and labels... {nf} found, {nm} missing, {ne} empty, {nc} corrupted"
+            warn(prefix + d, stacklevel=2)
             tqdm(None, desc=prefix + d, total=n, initial=n)  # display cache results
         assert nf > 0 or not augment, (
             f"{prefix}No labels in {cache_path}. Can not train without labels. See {help_url}"
@@ -622,6 +623,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         # Cache dataset labels, check images and read shapes
         x = {}  # dict
         nm, nf, ne, nc = 0, 0, 0, 0  # number missing, found, empty, duplicate
+        warn(f"{prefix}Scanning images", stacklevel=2)
         pbar = tqdm(
             zip(self.img_files, self.label_files),
             desc="Scanning images",
@@ -672,8 +674,9 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                 x[im_file] = [l, shape, segments]
             except Exception as e:
                 nc += 1
-                print(
-                    f"{prefix}WARNING: Ignoring corrupted image and/or label {im_file}: {e}"
+                warn(
+                    f"{prefix}WARNING: Ignoring corrupted image and/or label {im_file}: {e}",
+                    stacklevel=2
                 )
 
             pbar.desc = (
@@ -683,7 +686,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         pbar.close()
 
         if nf == 0:
-            print(f"{prefix}WARNING: No labels found in {path}. See {help_url}")
+            warn(f"{prefix}WARNING: No labels found in {path}. See {help_url}", stacklevel=2)
 
         x["hash"] = get_hash(self.label_files + self.img_files)
         x["results"] = nf, nm, ne, nc, i + 1
@@ -1604,8 +1607,7 @@ class Albumentations:
                 A.RandomGamma(gamma_limit=[80, 120], p=0.01),
                 A.Blur(p=0.01),
                 A.MedianBlur(p=0.01),
-                A.ToGray(p=0.01),
-                A.ImageCompression(quality_lower=75, p=0.01),
+                A.ImageCompression(quality_range=(75, 100), p=0.01),
             ],
             bbox_params=A.BboxParams(
                 format="pascal_voc", label_fields=["class_labels"]

@@ -4,6 +4,7 @@ import math
 import os
 import random
 import time
+import warnings
 from copy import deepcopy
 from pathlib import Path
 from threading import Thread
@@ -140,7 +141,7 @@ def train(hyp, opt, device, tb_writer=None):
     for k, v in model.named_parameters():
         v.requires_grad = True  # train all layers
         if any(x in k for x in freeze):
-            print("freezing %s" % k)
+            warnings.warn("freezing %s" % k, stacklevel=2)
             v.requires_grad = False
 
     # Optimizer
@@ -390,7 +391,10 @@ def train(hyp, opt, device, tb_writer=None):
     maps = np.zeros(nc)  # mAP per class
     results = (0, 0, 0, 0, 0, 0, 0)  # P, R, mAP@.5, mAP@.5-.95, val_loss(box, obj, cls)
     scheduler.last_epoch = start_epoch - 1  # do not move
-    scaler = amp.GradScaler(enabled=cuda)
+    # Suppress FutureWarning about GradScaler API change
+    with warnings.catch_warnings():
+        warnings.filterwarnings('ignore', category=FutureWarning, message='.*GradScaler.*')
+        scaler = amp.GradScaler(enabled=cuda)
     compute_loss_ota = ComputeLossOTA(model)  # init loss class
     compute_loss = ComputeLoss(model)  # init loss class
     logger.info(
@@ -502,18 +506,21 @@ def train(hyp, opt, device, tb_writer=None):
                     )
 
             # Forward
-            with amp.autocast(enabled=cuda):
-                imgs = imgs.squeeze(-1)
+            # Suppress FutureWarning about autocast API change
+            with warnings.catch_warnings():
+                warnings.filterwarnings('ignore', category=FutureWarning, message='.*autocast.*')
+                with amp.autocast(enabled=cuda):
+                    imgs = imgs.squeeze(-1)
 
-                pred = model(imgs)  # forward
-                if "loss_ota" not in hyp or hyp["loss_ota"] == 1:
-                    loss, loss_items = compute_loss_ota(
-                        pred, targets.to(device), imgs
-                    )  # loss scaled by batch_size
-                else:
-                    loss, loss_items = compute_loss(
-                        pred, targets.to(device)
-                    )  # loss scaled by batch_size
+                    pred = model(imgs)  # forward
+                    if "loss_ota" not in hyp or hyp["loss_ota"] == 1:
+                        loss, loss_items = compute_loss_ota(
+                            pred, targets.to(device), imgs
+                        )  # loss scaled by batch_size
+                    else:
+                        loss, loss_items = compute_loss(
+                            pred, targets.to(device)
+                        )  # loss scaled by batch_size
                 if rank != -1:
                     loss *= (
                         opt.world_size
@@ -929,9 +936,10 @@ def _yolo_training(opt):
 
         # Plot results
         plot_evolution(yaml_file)
-        print(
+        warnings.warn(
             f"Hyperparameter evolution complete. Best results saved as: {yaml_file}\n"
-            f"Command to train a new model with these hyperparameters: $ python train.py --hyp {yaml_file}"
+            f"Command to train a new model with these hyperparameters: $ python train.py --hyp {yaml_file}",
+            stacklevel=2
         )
 
 
