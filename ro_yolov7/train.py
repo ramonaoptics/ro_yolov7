@@ -391,7 +391,7 @@ def train(hyp, opt, device, tb_writer=None):
     maps = np.zeros(nc)  # mAP per class
     results = (0, 0, 0, 0, 0, 0, 0)  # P, R, mAP@.5, mAP@.5-.95, val_loss(box, obj, cls)
     scheduler.last_epoch = start_epoch - 1  # do not move
-    scaler = amp.GradScaler('cuda', enabled=cuda)
+    scaler = amp.GradScaler(device='cuda', enabled=cuda)
     compute_loss_ota = ComputeLossOTA(model)  # init loss class
     compute_loss = ComputeLoss(model)  # init loss class
     logger.info(
@@ -503,7 +503,7 @@ def train(hyp, opt, device, tb_writer=None):
                     )
 
             # Forward
-            with amp.autocast(enabled=cuda):
+            with amp.autocast(device_type='cuda', enabled=cuda):
                 imgs = imgs.squeeze(-1)
 
                 pred = model(imgs)  # forward
