@@ -1,10 +1,14 @@
 import argparse
 import logging
 import sys
+import warnings
 from copy import deepcopy
 
 logger = logging.getLogger(__name__)
 import torch
+
+# Suppress TracerWarnings - these are expected during model tracing/export
+warnings.filterwarnings('ignore', category=torch.jit.TracerWarning)
 from ro_yolov7.models.common import *
 from ro_yolov7.models.experimental import *
 from ro_yolov7.utils.autoanchor import check_anchor_order
