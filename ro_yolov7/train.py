@@ -4,6 +4,7 @@ import math
 import os
 import random
 import time
+import warnings
 from copy import deepcopy
 from pathlib import Path
 from threading import Thread
@@ -140,7 +141,7 @@ def train(hyp, opt, device, tb_writer=None):
     for k, v in model.named_parameters():
         v.requires_grad = True  # train all layers
         if any(x in k for x in freeze):
-            print("freezing %s" % k)
+            warnings.warn("freezing %s" % k, stacklevel=2)
             v.requires_grad = False
 
     # Optimizer
@@ -929,9 +930,10 @@ def _yolo_training(opt):
 
         # Plot results
         plot_evolution(yaml_file)
-        print(
+        warnings.warn(
             f"Hyperparameter evolution complete. Best results saved as: {yaml_file}\n"
-            f"Command to train a new model with these hyperparameters: $ python train.py --hyp {yaml_file}"
+            f"Command to train a new model with these hyperparameters: $ python train.py --hyp {yaml_file}",
+            stacklevel=2
         )
 
 
