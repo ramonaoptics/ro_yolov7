@@ -391,7 +391,10 @@ def train(hyp, opt, device, tb_writer=None):
     maps = np.zeros(nc)  # mAP per class
     results = (0, 0, 0, 0, 0, 0, 0)  # P, R, mAP@.5, mAP@.5-.95, val_loss(box, obj, cls)
     scheduler.last_epoch = start_epoch - 1  # do not move
-    scaler = amp.GradScaler(device='cuda', enabled=cuda)
+    # Suppress FutureWarning about GradScaler API change
+    with warnings.catch_warnings():
+        warnings.filterwarnings('ignore', category=FutureWarning, message='.*GradScaler.*')
+        scaler = amp.GradScaler(enabled=cuda)
     compute_loss_ota = ComputeLossOTA(model)  # init loss class
     compute_loss = ComputeLoss(model)  # init loss class
     logger.info(
@@ -503,18 +506,21 @@ def train(hyp, opt, device, tb_writer=None):
                     )
 
             # Forward
-            with amp.autocast(device_type='cuda', enabled=cuda):
-                imgs = imgs.squeeze(-1)
+            # Suppress FutureWarning about autocast API change
+            with warnings.catch_warnings():
+                warnings.filterwarnings('ignore', category=FutureWarning, message='.*autocast.*')
+                with amp.autocast(enabled=cuda):
+                    imgs = imgs.squeeze(-1)
 
-                pred = model(imgs)  # forward
-                if "loss_ota" not in hyp or hyp["loss_ota"] == 1:
-                    loss, loss_items = compute_loss_ota(
-                        pred, targets.to(device), imgs
-                    )  # loss scaled by batch_size
-                else:
-                    loss, loss_items = compute_loss(
-                        pred, targets.to(device)
-                    )  # loss scaled by batch_size
+                    pred = model(imgs)  # forward
+                    if "loss_ota" not in hyp or hyp["loss_ota"] == 1:
+                        loss, loss_items = compute_loss_ota(
+                            pred, targets.to(device), imgs
+                        )  # loss scaled by batch_size
+                    else:
+                        loss, loss_items = compute_loss(
+                            pred, targets.to(device)
+                        )  # loss scaled by batch_size
                 if rank != -1:
                     loss *= (
                         opt.world_size
