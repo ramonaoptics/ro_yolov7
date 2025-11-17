@@ -8,6 +8,7 @@ import random
 import re
 import subprocess
 import time
+import warnings
 from pathlib import Path
 
 import cv2
@@ -938,8 +939,9 @@ def strip_optimizer(
         p.requires_grad = False
     torch.save(x, s or f)
     mb = os.path.getsize(s or f) / 1e6  # filesize
-    print(
-        f"Optimizer stripped from {f},{(' saved as %s,' % s) if s else ''} {mb:.1f}MB"
+    warnings.warn(
+        f"Optimizer stripped from {f},{(' saved as %s,' % s) if s else ''} {mb:.1f}MB",
+        stacklevel=2
     )
 
 
@@ -950,7 +952,7 @@ def print_mutation(hyp, results, yaml_file="hyp_evolved.yaml", bucket=""):
     c = (
         "%10.4g" * len(results) % results
     )  # results (P, R, mAP@0.5, mAP@0.5:0.95, val_losses x 3)
-    print("\n%s\n%s\nEvolved fitness: %s\n" % (a, b, c))
+    warnings.warn("\n%s\n%s\nEvolved fitness: %s\n" % (a, b, c), stacklevel=2)
 
     if bucket:
         url = "gs://%s/evolve.txt" % bucket
