@@ -504,7 +504,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
             assert self.img_files, f"{prefix}No images found"
         except Exception as e:
             raise Exception(
-                f"{prefix}Error loading data from {path}: {e}\nSee {help_url}"
+                f"{prefix}Error loading data from {path}: {e}"  # \nSee {help_url}"
             )
 
         # Check cache
@@ -542,7 +542,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
             warn(prefix + d, stacklevel=2)
             tqdm(None, desc=prefix + d, total=n, initial=n)  # display cache results
         assert nf > 0 or not augment, (
-            f"{prefix}No labels in {cache_path}. Can not train without labels. See {help_url}"
+            f"{prefix}No labels in {cache_path}. Can not train without labels."  # See {help_url}"
         )
 
         # Read cache
@@ -686,7 +686,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         pbar.close()
 
         if nf == 0:
-            warn(f"{prefix}WARNING: No labels found in {path}. See {help_url}", stacklevel=2)
+            warn(f"{prefix}WARNING: No labels found in {path}.", stacklevel=2)  # See {help_url}
 
         x["hash"] = get_hash(self.label_files + self.img_files)
         x["results"] = nf, nm, ne, nc, i + 1

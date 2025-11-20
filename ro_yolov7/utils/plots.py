@@ -343,7 +343,11 @@ def plot_study_txt(path="", x=None):  # from utils.plots import *; plot_study_tx
 
 def plot_labels(labels, names=(), save_dir=Path(''), loggers=None):
     import pandas as pd
-    import seaborn as sns
+    try:
+        import seaborn as sns
+        seaborn_available = True
+    except ImportError:
+        seaborn_available = False
 
     # plot dataset labels
     print("Plotting labels... ")
@@ -353,16 +357,38 @@ def plot_labels(labels, names=(), save_dir=Path(''), loggers=None):
     x = pd.DataFrame(b.transpose(), columns=["x", "y", "width", "height"])
 
     # seaborn correlogram
-    sns.pairplot(
-        x,
-        corner=True,
-        diag_kind="auto",
-        kind="hist",
-        diag_kws=dict(bins=50),
-        plot_kws=dict(pmax=0.9),
-    )
-    plt.savefig(save_dir / "labels_correlogram.jpg", dpi=200)
-    plt.close()
+    if seaborn_available:
+        sns.pairplot(
+            x,
+            corner=True,
+            diag_kind="auto",
+            kind="hist",
+            diag_kws=dict(bins=50),
+            plot_kws=dict(pmax=0.9),
+        )
+        plt.savefig(save_dir / "labels_correlogram.jpg", dpi=200)
+        plt.close()
+    else:
+        # matplotlib fallback for correlogram
+        fig, axes = plt.subplots(4, 4, figsize=(10, 10), tight_layout=True)
+        cols = ["x", "y", "width", "height"]
+        for i in range(4):
+            for j in range(4):
+                ax = axes[i, j]
+                if i == j:
+                    # Diagonal: histogram
+                    ax.hist(x[cols[i]], bins=50, edgecolor='black')
+                    ax.set_ylabel('Count')
+                elif i > j:
+                    # Lower triangle: scatter plots
+                    ax.scatter(x[cols[j]], x[cols[i]], alpha=0.5, s=1)
+                    ax.set_xlabel(cols[j])
+                    ax.set_ylabel(cols[i])
+                else:
+                    # Upper triangle: hide
+                    ax.axis('off')
+        plt.savefig(save_dir / "labels_correlogram.jpg", dpi=200)
+        plt.close()
 
     # matplotlib labels
     # matplotlib.use('svg')  # faster
@@ -375,8 +401,17 @@ def plot_labels(labels, names=(), save_dir=Path(''), loggers=None):
     else:
         ax[0].set_xlabel('classes')
 
-    sns.histplot(x, x='x', y='y', ax=ax[2], bins=50, pmax=0.9)
-    sns.histplot(x, x='width', y='height', ax=ax[3], bins=50, pmax=0.9)
+    if seaborn_available:
+        sns.histplot(x, x='x', y='y', ax=ax[2], bins=50, pmax=0.9)
+        sns.histplot(x, x='width', y='height', ax=ax[3], bins=50, pmax=0.9)
+    else:
+        # matplotlib fallback for 2D histograms
+        ax[2].hist2d(x['x'], x['y'], bins=50, cmap='viridis')
+        ax[2].set_xlabel('x')
+        ax[2].set_ylabel('y')
+        ax[3].hist2d(x['width'], x['height'], bins=50, cmap='viridis')
+        ax[3].set_xlabel('width')
+        ax[3].set_ylabel('height')
 
     # rectangles
     labels[:, 1:3] = 0.5  # center
