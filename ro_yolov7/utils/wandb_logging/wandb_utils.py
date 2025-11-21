@@ -98,13 +98,16 @@ class WandbLogger:
             data_dict,
         )
         # It's more elegant to stick to 1 wandb.init call, but useful config data is overwritten in the WandbLogger's wandb.init call
+        # Determine wandb directory - use save_dir if available, otherwise use project directory
+        wandb_dir = str(getattr(opt, 'save_dir', opt.project))
+        
         if isinstance(opt.resume, str):  # checks resume from artifact
             if opt.resume.startswith(WANDB_ARTIFACT_PREFIX):
                 run_id, project, model_artifact_name = get_run_info(opt.resume)
                 model_artifact_name = WANDB_ARTIFACT_PREFIX + model_artifact_name
                 assert wandb, "install wandb to resume wandb runs"
                 # Resume wandb-artifact:// runs here| workaround for not overwriting wandb.config
-                self.wandb_run = wandb.init(id=run_id, project=project, resume="allow")
+                self.wandb_run = wandb.init(id=run_id, project=project, resume="allow", dir=wandb_dir)
                 opt.resume = model_artifact_name
         elif self.wandb:
             self.wandb_run = (
@@ -117,6 +120,7 @@ class WandbLogger:
                     name=name,
                     job_type=job_type,
                     id=run_id,
+                    dir=wandb_dir,
                 )
                 if not wandb.run
                 else wandb.run
