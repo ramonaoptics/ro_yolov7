@@ -10,7 +10,7 @@ import warnings
 # Suppress warnings from onnxconvertercommon during ONNX export
 warnings.filterwarnings('ignore', module='onnxconvertercommon.*')
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __author__ = "Chien-Yao Wang, Alexey Bochkovskiy, Hong-Yuan Mark Liao"
 
 from ro_yolov7.models.yolo import Model
