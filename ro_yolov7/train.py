@@ -784,6 +784,19 @@ def _yolo_training(opt):
         ) = "", ckpt, True, opt.total_batch_size, *apriori  # reinstate
         logger.info("Resuming training from %s" % ckpt)
     else:
+
+        if opt.cfg is not None:
+            cfg_path = Path(opt.cfg)
+            if not cfg_path.is_file():
+                cfg_path = Path(__file__).parent() / 'cfg' / 'training' / cfg_path.name
+                if cfg_path.is_file():
+                    opt.cfg = str(cfg_path)
+        if opt.data is not None:
+            data_path = Path(opt.data)
+            if not data_path.is_file():
+                data_path = Path(__file__).parent() / 'data' / data_path.name
+                if data_path.is_file():
+                    opt.data = str(data_path)
         # opt.hyp = opt.hyp or ('hyp.finetune.yaml' if opt.weights else 'hyp.scratch.yaml')
         opt.data, opt.cfg, opt.hyp = (
             check_file(opt.data),
@@ -943,7 +956,7 @@ def _yolo_training(opt):
         )
 
 
-if __name__ == "__main__":
+def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--weights", type=str, default="yolo7.pt", help="initial weights path"
@@ -1070,3 +1083,6 @@ if __name__ == "__main__":
     opt = parser.parse_args()
 
     _yolo_training(opt)
+
+if __name__ == "__main__":
+    main()

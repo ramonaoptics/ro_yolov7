@@ -1,7 +1,7 @@
 {% set python_min = "3.10" %}
 package:
   name: ro-yolov7
-  version: "0.2.0"
+  version: "0.3.0"
 
 source:
   path: ..
@@ -10,6 +10,8 @@ build:
   number: 0
   noarch: python
   script: python -m pip install --no-deps --ignore-installed .
+  entrypoints:
+    - ro_yolov7_train=ro_yolov7.train:main
 
 requirements:
   build:
@@ -35,6 +37,7 @@ test:
     - python {{ python_min }}.*
   commands:
     - pip check
+    - ro_yolov7_train --help
   imports:
     - ro_yolov7
 
