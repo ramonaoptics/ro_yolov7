@@ -17,10 +17,11 @@ requirements = [
     "tqdm",
 ]
 
+
 setup(
     name="ro-yolov7",
-    version="0.2.0",
-    author="Chien-Yao Wang, Alexey Bochkovskiy, Hong-Yuan Mark Liao",
+    version="0.3.0",
+    author="Chien-Yao Wang, Alexey Bochkovskiy, Hong-Yuan Mark Liao, John Efromon, Mark Harfouche",
     description="YOLOv7: Trainable bag-of-freebies sets new state-of-the-art for real-time object detectors",
     long_description=long_description,
     long_description_content_type="text/markdown",
@@ -35,6 +36,11 @@ setup(
     include_package_data=True,
     install_requires=requirements,
     python_requires=">=3.10",
+    entry_points={
+        "console_scripts": [
+            "ro_yolov7_train=ro_yolov7.train:main",
+        ],
+    },
     classifiers=[
         "Development Status :: 4 - Beta",
         "Intended Audience :: Developers",
