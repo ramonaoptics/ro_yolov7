@@ -29,6 +29,7 @@ setup(
     packages=find_packages(exclude=['tests', 'tests.*']),
     package_data={
         "ro_yolov7": [
+            "*.pt",
             "cfg/**/*.yaml",
             "data/**/*.yaml",
         ],
