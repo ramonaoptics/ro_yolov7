@@ -11,3 +11,8 @@ from ro_yolov7.models.yolo import Model
 from ro_yolov7.models.experimental import attempt_load
 
 __all__ = ["Model", "attempt_load", "__version__"]
+
+import sys
+
+if 'owl' in sys.modules:
+    raise ImportError("YOLOv7 is incompatible with the 'owl' package.")
