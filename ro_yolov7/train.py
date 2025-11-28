@@ -788,20 +788,20 @@ def _yolo_training(opt):
         if opt.cfg is not None:
             cfg_path = Path(opt.cfg)
             if not cfg_path.is_file():
-                cfg_path = Path(__file__).parent() / 'cfg' / 'training' / cfg_path.name
+                cfg_path = Path(__file__).parent / 'cfg' / 'training' / cfg_path.name
                 if cfg_path.is_file():
                     opt.cfg = str(cfg_path)
         if opt.data is not None:
             data_path = Path(opt.data)
             if not data_path.is_file():
-                data_path = Path(__file__).parent() / 'data' / data_path.name
+                data_path = Path(__file__).parent / 'data' / data_path.name
                 if data_path.is_file():
                     opt.data = str(data_path)
 
         if opt.weights is None:
             weights_path = Path(opt.weights)
             if not weights_path.is_file():
-                weights_path = Path(__file__).parent() / weights_path.name
+                weights_path = Path(__file__).parent / weights_path.name
                 if weights_path.is_file():
                     opt.weights = str(weights_path)
 
