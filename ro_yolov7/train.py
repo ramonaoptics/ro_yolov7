@@ -798,12 +798,19 @@ def _yolo_training(opt):
                 if data_path.is_file():
                     opt.data = str(data_path)
 
-        if opt.weights is None:
+        if opt.weights is not None:
             weights_path = Path(opt.weights)
             if not weights_path.is_file():
                 weights_path = Path(__file__).parent / weights_path.name
                 if weights_path.is_file():
                     opt.weights = str(weights_path)
+
+        if opt.hyp is not None:
+            hyp_path = Path(opt.hyp)
+            if not hyp_path.is_file():
+                hyp_path = Path(__file__).parent / 'data' / hyp_path.name
+                if hyp_path.is_file():
+                    opt.hyp = str(hyp_path)
 
         # opt.hyp = opt.hyp or ('hyp.finetune.yaml' if opt.weights else 'hyp.scratch.yaml')
         opt.data, opt.cfg, opt.hyp = (
@@ -965,18 +972,26 @@ def _yolo_training(opt):
 
 
 def main():
+    import ro_yolov7.models as models  # noqa: F401
+    import sys
+    # Old pt files have been serialized assuming models is available in the path
+    sys.modules["models"] = models
+
+    # So many hacks here the model was serialized with `models` as
+    # a valid module name....
+    # So things are expected to have the models in the path
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--weights", type=str, default="yolo7-tiny.pt", help="initial weights path"
     )
     parser.add_argument("--cfg", type=str, default="", help="model.yaml path")
     parser.add_argument(
-        "--data", type=str, default="data/coco.yaml", help="data.yaml path"
+        "--data", type=str, default="coco.yaml", help="data.yaml path"
     )
     parser.add_argument(
         "--hyp",
         type=str,
-        default="data/hyp.scratch.p5.yaml",
+        default="hyp.scratch.p5.yaml",
         help="hyperparameters path",
     )
     parser.add_argument("--epochs", type=int, default=300)
