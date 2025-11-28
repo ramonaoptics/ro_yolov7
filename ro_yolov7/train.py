@@ -797,6 +797,14 @@ def _yolo_training(opt):
                 data_path = Path(__file__).parent() / 'data' / data_path.name
                 if data_path.is_file():
                     opt.data = str(data_path)
+
+        if opt.weights is None:
+            weights_path = Path(opt.weights)
+            if not weights_path.is_file():
+                weights_path = Path(__file__).parent() / weights_path.name
+                if weights_path.is_file():
+                    opt.weights = str(weights_path)
+
         # opt.hyp = opt.hyp or ('hyp.finetune.yaml' if opt.weights else 'hyp.scratch.yaml')
         opt.data, opt.cfg, opt.hyp = (
             check_file(opt.data),
@@ -959,7 +967,7 @@ def _yolo_training(opt):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--weights", type=str, default="yolo7.pt", help="initial weights path"
+        "--weights", type=str, default="yolo7-tiny.pt", help="initial weights path"
     )
     parser.add_argument("--cfg", type=str, default="", help="model.yaml path")
     parser.add_argument(
