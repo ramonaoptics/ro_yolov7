@@ -431,10 +431,6 @@ def albumentations_is_available():
         _ = albumentations.__version__
         return True
     except:
-        warn(
-            "Albumentations is not available, skipping albumentations augmentations.",
-            stacklevel=2
-        )
         return False
 
 
@@ -455,16 +451,13 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         prefix="",
     ):
         self.img_size = img_size
-        self.albumentations = (
-            Albumentations()
-            if augment and albumentations_is_available()
-            else None
-        )
-        self.pytorch_augments = (
-            PyTorchAugments()
-            if augment and not albumentations_is_available()
-            else None
-        )
+        if augment:
+            if albumentations_is_available():
+                self.augmentations = Albumentations()
+            else:
+                self.augmentations = PyTorchAugments()
+        else:
+            self.augmentations = None
         self.augment = augment
         self.hyp = hyp
         self.image_weights = image_weights
@@ -771,10 +764,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                     perspective=hyp["perspective"],
                 )
 
-            if self.albumentations is not None:
-                img, labels = self.albumentations(img, labels)
-            else:
-                img, labels = self.pytorch_augments(img, labels)
+            img, labels = self.augmentations(img, labels)
 
             # Augment colorspace
             # with rgb images we can augment the colorspace
