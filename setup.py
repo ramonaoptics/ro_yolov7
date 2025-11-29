@@ -7,6 +7,7 @@ long_description = readme_file.read_text(encoding="utf-8") if readme_file.exists
 requirements = [
     "matplotlib",
     "numpy",
+    "onnx",
     "opencv-python",
     "Pillow",
     "PyYAML",
@@ -40,6 +41,7 @@ setup(
     entry_points={
         "console_scripts": [
             "ro_yolov7_train=ro_yolov7.train:main",
+            "ro_yolov7_convert_pytorch_to_onnx=ro_yolov7.convert_pytorch_to_onnx:main",
         ],
     },
     classifiers=[
