@@ -982,7 +982,9 @@ def main():
         default="yolov7-tiny.yaml",
         help="model.yaml path"
     )
-    parser.add_argument("--data", type=str, default="coco.yaml", help="data.yaml path")
+    parser.add_argument(
+        "--data", type=str, default="coco.yaml", help="data.yaml path"
+    )
     parser.add_argument(
         "--hyp",
         type=str,
