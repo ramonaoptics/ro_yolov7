@@ -38,6 +38,7 @@ test:
   commands:
     - pip check
     - ro_yolov7_train --help
+    - ro_yolov7_convert_from_yolov7 --help
     - test -f ${SP_DIR}/ro_yolov7/yolov7-tiny.pt
     - test -f ${SP_DIR}/ro_yolov7/cfg/training/yolov7-tiny.yaml
     - test -f ${SP_DIR}/ro_yolov7/data/hyp.scratch.tiny.yaml

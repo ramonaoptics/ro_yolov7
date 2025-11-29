@@ -972,14 +972,6 @@ def _yolo_training(opt):
 
 
 def main():
-    import ro_yolov7.models as models  # noqa: F401
-    import sys
-    # Old pt files have been serialized assuming models is available in the path
-    sys.modules["models"] = models
-
-    # So many hacks here the model was serialized with `models` as
-    # a valid module name....
-    # So things are expected to have the models in the path
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--weights", type=str, default="yolo7-tiny.pt", help="initial weights path"
