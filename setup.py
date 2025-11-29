@@ -41,6 +41,7 @@ setup(
     entry_points={
         "console_scripts": [
             "ro_yolov7_train=ro_yolov7.train:main",
+            "ro_yolov7_convert_from_yolov7=ro_yolov7.tools.convert_from_yolov7:main",
             "ro_yolov7_convert_pytorch_to_onnx=ro_yolov7.convert_pytorch_to_onnx:main",
         ],
     },
