@@ -976,9 +976,17 @@ def main():
     parser.add_argument(
         "--weights", type=str, default="yolo7-tiny.pt", help="initial weights path"
     )
-    parser.add_argument("--cfg", type=str, default="", help="model.yaml path")
     parser.add_argument(
-        "--data", type=str, default="coco.yaml", help="data.yaml path"
+        "--cfg",
+        type=str,
+        default="yolov7-tiny.yaml",
+        help="model.yaml path"
+    )
+    parser.add_argument(
+        "--data",
+        type=str,
+        default="hyp.scratch.tiny.yaml",
+        help="data.yaml path"
     )
     parser.add_argument(
         "--hyp",
