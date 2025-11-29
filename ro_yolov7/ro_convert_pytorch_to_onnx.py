@@ -1,0 +1,76 @@
+import sys
+import tempfile
+from pathlib import Path
+
+import onnx
+import torch
+import torch.nn as nn
+
+# from onnxconverter_common import float16
+
+
+def convert_pytorch_to_onnx(pytorch_model_path, resize_shape):
+    temp_dir = tempfile.TemporaryDirectory()
+    temp_path = Path(temp_dir.name)
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    # 20251118 - John - Changed from float16 to float32 due to onnxconverter-common
+    # 1.15+ compatibility issues. The float16 conversion with onnxconverter-common
+    # 1.15+ creates type mismatches that ONNX Runtime cannot load. Float32 models
+    # work correctly and the performance difference is acceptable.
+
+    model = torch.load(
+        pytorch_model_path,
+        map_location=device,
+        weights_only=False
+    )
+
+    dummy_input = torch.randn((1, 1) + resize_shape[:2]).to(device)
+
+    onnx_model_path = Path(pytorch_model_path).with_suffix(".onnx")
+
+    torch.onnx.export(
+        model,
+        dummy_input,
+        onnx_model_path,
+        opset_version=15,
+        input_names=["input"],
+        output_names=["output"],
+        dynamic_axes={"input": {0: "batch_size"}, "output": {0: "batch_size"}},
+    )
+
+    onnx_model = onnx.load(onnx_model_path)
+    onnx.checker.check_model(onnx_model)
+
+    print("ONNX model is valid.")
+
+    # Note: float16 conversion is disabled due to onnxconverter-common 1.15+
+    # compatibility issues. Models are now exported in float32 format for
+    # maximum compatibility
+    # if data_type == "float16":
+    #     onnx_model = float16.convert_float_to_float16(onnx_model, keep_io_types=True)
+
+    return onnx_model
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='Convert YOLOv7 pytorch model to an exported onnx format'
+    )
+    parser.add_argument(
+        'input_file',
+        type=str,
+        help='Path to input PyTorch model file (.pt)'
+    )
+    parser.add_argument(
+        'resize_shape',
+        type=str,
+        help='Resize shape of image data during training and inference'
+    )
+    args = parser.parse_args()
+    convert_pytorch_to_onnx(args.input_file, args.resize_shape)
+
+
+if __name__ == '__main__':
+    main()
