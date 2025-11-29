@@ -9,7 +9,7 @@ import torch.nn as nn
 # from onnxconverter_common import float16
 
 
-def convert_pytorch_to_onnx(pytorch_model_path, resize_shape):
+def convert_pytorch_to_onnx(pytorch_model_path, height, width):
     temp_dir = tempfile.TemporaryDirectory()
     temp_path = Path(temp_dir.name)
 
@@ -26,7 +26,7 @@ def convert_pytorch_to_onnx(pytorch_model_path, resize_shape):
         weights_only=False
     )
 
-    dummy_input = torch.randn((1, 1) + resize_shape[:2]).to(device)
+    dummy_input = torch.randn((1, 1) + (height, width)).to(device)
 
     onnx_model_path = Path(pytorch_model_path).with_suffix(".onnx")
 
@@ -64,12 +64,17 @@ def main():
         help='Path to input PyTorch model file (.pt)'
     )
     parser.add_argument(
-        'resize_shape',
+        'resize_height',
         type=str,
-        help='Resize shape of image data during training and inference'
+        help='Resize height of image data during training and inference'
+    )
+    parser.add_argument(
+        'resize_width',
+        type=str,
+        help='Resize width of image data during training and inference'
     )
     args = parser.parse_args()
-    convert_pytorch_to_onnx(args.input_file, args.resize_shape)
+    convert_pytorch_to_onnx(args.input_file, args.resize_height, args.resize_width)
 
 
 if __name__ == '__main__':
