@@ -8,6 +8,7 @@ requirements = [
     "matplotlib",
     "numpy",
     "onnx",
+    "onnxscript",
     "opencv-python",
     "Pillow",
     "PyYAML",
