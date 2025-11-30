@@ -1,7 +1,7 @@
 {% set python_min = "3.10" %}
 package:
   name: ro-yolov7
-  version: "0.3.3"
+  version: "0.3.4"
 
 source:
   path: ..
@@ -33,6 +33,7 @@ requirements:
     - torchvision
     - tqdm
     - onnx
+    - onnxscript
 
 test:
   requires:
