@@ -26,9 +26,7 @@ def convert_from_yolov7(input_file, output=None):
         raise FileNotFoundError(f"Input file not found: {input_file}")
 
     if output is None:
-        input_stem = input_file.stem
-        input_suffix = input_file.suffix
-        output = input_file.parent / f"{input_stem}_ro{input_suffix}"
+        output = input_file.parent / f"ro_{input_file.name}"
     else:
         output = Path(output)
 
@@ -36,15 +34,16 @@ def convert_from_yolov7(input_file, output=None):
 
     import torch
     with open(input_file, 'rb') as f:
-        model_data = torch.load(
+        ckpt = torch.load(
             f,
             map_location=torch.device('cpu'),
             weights_only=False,
             pickle_module=ro_yolov7.tools.unpickler,
         )
+        model = ckpt['model']
 
     print(f"Saving model to {output}...")
-    torch.save(model_data, output)
+    torch.save(model, output)
 
     print(f"Conversion complete: {output}")
 

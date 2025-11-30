@@ -1,36 +1,15 @@
 import argparse
-import sys
-import tempfile
 from pathlib import Path
 
 import onnx
 import torch
-import torch.nn as nn
 
-from ro_yolov7 import ro_pickle
+from ro_yolov7.tools.convert_from_yolov7 import convert_from_yolov7
 
 # from onnxconverter_common import float16
 
 
-class Ensemble(nn.ModuleList):
-    # Ensemble of models
-    def __init__(self):
-        super().__init__()
-
-    def forward(self, x, augment=False):
-        y = []
-        for module in self:
-            y.append(module(x, augment)[0])
-        # y = torch.stack(y).max(0)[0]  # max ensemble
-        # y = torch.stack(y).mean(0)  # mean ensemble
-        y = torch.cat(y, 1)  # nms ensemble
-        return y, None  # inference, train output
-
-
 def convert_pytorch_to_onnx(pytorch_model_path, height, width):
-    temp_dir = tempfile.TemporaryDirectory()
-    temp_path = Path(temp_dir.name)
-
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     # 20251118 - John - Changed from float16 to float32 due to onnxconverter-common
@@ -38,16 +17,17 @@ def convert_pytorch_to_onnx(pytorch_model_path, height, width):
     # 1.15+ creates type mismatches that ONNX Runtime cannot load. Float32 models
     # work correctly and the performance difference is acceptable.
 
-    model = Ensemble()
-    ckpt = torch.load(
-        pytorch_model_path,
-        map_location=device,
-        weights_only=False,
-        pickle_module=ro_pickle
-    )
-    model.append(ckpt["ema" if ckpt.get("ema") else "model"].float().fuse().eval())
+    pytorch_model_path = Path(pytorch_model_path)
+    ro_pytorch_model_path = pytorch_model_path.parent / f"ro_{pytorch_model_path.name}"
+    # convert from yolov7 net format to ro_yolov7 format
+    convert_from_yolov7(pytorch_model_path)
 
-    dummy_input = torch.randn((1, 1) + (int(height), int(width))).to(device)
+    model = torch.load(ro_pytorch_model_path, map_location=device, weights_only=False)
+
+    # Ensure model is in eval mode and on the correct device
+    model = model.float().eval().to(device)
+
+    dummy_input = torch.randn((1, 1, int(height), int(width))).to(device)
 
     onnx_model_path = Path(pytorch_model_path).with_suffix(".onnx")
 
