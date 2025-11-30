@@ -1,13 +1,10 @@
 from pathlib import Path
 import subprocess
-import pytest
 import onnx
-
-import ro_yolov7
 
 
 def test_convert_pytorch_to_onnx():
-    pytorch_model_path = Path("/home/john/git/ro_yolov7/tests/test_pytorch_model.pt")
+    pytorch_model_path = Path(__file__).parent / "test_pytorch_model.pt"
     height, width = (512, 512)
 
     result = subprocess.run([
