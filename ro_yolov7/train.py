@@ -52,6 +52,7 @@ def train(hyp, opt, device, tb_writer=None):
         opt.freeze,
     )
 
+    # point to our default weights contained within this package
     if weights == "yolov7-tiny.pt":
         weights = Path(__file__).parent / "yolov7-tiny.pt"
 
