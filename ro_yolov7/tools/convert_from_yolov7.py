@@ -6,29 +6,16 @@ import ro_yolov7.tools.unpickler
 
 def convert_from_yolov7(input_file, output=None):
     """Convert models pretrained from YOLOv7 to be loadable by torch.
-
     The problem is that the models assume that yolov7 is in the path.
     This isn't always going to be the case when the models are installed
     in a larger conda environment.
-
-    Example
-    -------
-    >>> import torch
-    >>> with open('ro_yolov7/yolov7-tiny.pt', 'rb') as f:
-    ...     model_data = torch.load(
-    ...         f,
-    ...         map_location=torch.device('cpu'),
-    ...         weights_only=False,
-    ...     )
     """
     input_file = Path(input_file)
     if not input_file.exists():
         raise FileNotFoundError(f"Input file not found: {input_file}")
 
     if output is None:
-        input_stem = input_file.stem
-        input_suffix = input_file.suffix
-        output = input_file.parent / f"{input_stem}_ro{input_suffix}"
+        output = input_file.parent / f"ro_{input_file.name}"
     else:
         output = Path(output)
 

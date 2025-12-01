@@ -7,6 +7,8 @@ long_description = readme_file.read_text(encoding="utf-8") if readme_file.exists
 requirements = [
     "matplotlib",
     "numpy",
+    "onnx",
+    "onnxscript",
     "opencv-python",
     "Pillow",
     "PyYAML",
@@ -20,7 +22,7 @@ requirements = [
 
 setup(
     name="ro-yolov7",
-    version="0.3.3",
+    version="0.4.1",
     author="Chien-Yao Wang, Alexey Bochkovskiy, Hong-Yuan Mark Liao, John Efromon, Mark Harfouche",
     description="YOLOv7: Trainable bag-of-freebies sets new state-of-the-art for real-time object detectors",
     long_description=long_description,
@@ -41,6 +43,7 @@ setup(
         "console_scripts": [
             "ro_yolov7_train=ro_yolov7.train:main",
             "ro_yolov7_convert_from_yolov7=ro_yolov7.tools.convert_from_yolov7:main",
+            "ro_yolov7_convert_pytorch_to_onnx=ro_yolov7.tools.convert_pytorch_to_onnx:main",
         ],
     },
     classifiers=[

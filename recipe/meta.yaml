@@ -1,7 +1,7 @@
 {% set python_min = "3.10" %}
 package:
   name: ro-yolov7
-  version: "0.3.3"
+  version: "0.4.1"
 
 source:
   path: ..
@@ -12,6 +12,8 @@ build:
   script: python -m pip install --no-deps --ignore-installed .
   entrypoints:
     - ro_yolov7_train=ro_yolov7.train:main
+    - ro_yolov7_convert_from_yolov7=ro_yolov7.tools.convert_from_yolov7:main
+    - ro_yolov7_convert_pytorch_to_onnx=ro_yolov7.tools.convert_pytorch_to_onnx:main
 
 requirements:
   build:
@@ -30,6 +32,8 @@ requirements:
     - pytorch
     - torchvision
     - tqdm
+    - onnx
+    - onnxscript
 
 test:
   requires:
@@ -39,6 +43,7 @@ test:
     - pip check
     - ro_yolov7_train --help
     - ro_yolov7_convert_from_yolov7 --help
+    - ro_yolov7_convert_pytorch_to_onnx --help
     - test -f ${SP_DIR}/ro_yolov7/yolov7-tiny.pt
     - test -f ${SP_DIR}/ro_yolov7/cfg/training/yolov7-tiny.yaml
     - test -f ${SP_DIR}/ro_yolov7/data/hyp.scratch.tiny.yaml
