@@ -22,9 +22,10 @@ def convert_pytorch_to_onnx(pytorch_model_path, height, width):
     # convert from yolov7 net format to ro_yolov7 format
     convert_from_yolov7(pytorch_model_path)
 
-    model = torch.load(ro_pytorch_model_path, map_location=device, weights_only=False)
+    checkpoint = torch.load(ro_pytorch_model_path, map_location=device, weights_only=False)
+    # ensure we target the model here as we have loaded a checkpoint
+    model = checkpoint["model"]
 
-    # Ensure model is in eval mode and on the correct device
     model = model.float().eval().to(device)
 
     dummy_input = torch.randn((1, 1, int(height), int(width))).to(device)
