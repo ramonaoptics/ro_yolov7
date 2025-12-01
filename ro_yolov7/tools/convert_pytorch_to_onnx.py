@@ -9,7 +9,7 @@ from ro_yolov7.tools.convert_from_yolov7 import convert_from_yolov7
 # from onnxconverter_common import float16
 
 
-def convert_pytorch_to_onnx(pytorch_model_path, height, width):
+def convert_pytorch_to_onnx(pytorch_model_path, height, width, channels=1):
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     # 20251118 - John - Changed from float16 to float32 due to onnxconverter-common
@@ -28,7 +28,7 @@ def convert_pytorch_to_onnx(pytorch_model_path, height, width):
 
     model = model.float().eval().to(device)
 
-    dummy_input = torch.randn((1, 1, int(height), int(width))).to(device)
+    dummy_input = torch.randn((1, int(channels), int(height), int(width))).to(device)
 
     onnx_model_path = Path(pytorch_model_path).with_suffix(".onnx")
 
@@ -75,8 +75,19 @@ def main():
         type=str,
         help='Resize width of image data during training and inference'
     )
+    parser.add_argument(
+        '--channels',
+        default=1,
+        type=str,
+        help='The number of color channels in the images that this model processes'
+    )
     args = parser.parse_args()
-    convert_pytorch_to_onnx(args.input_file, args.resize_height, args.resize_width)
+    convert_pytorch_to_onnx(
+        args.input_file,
+        args.resize_height,
+        args.resize_width,
+        args.channels,
+    )
 
 
 if __name__ == '__main__':
