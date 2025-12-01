@@ -23,7 +23,7 @@ def convert_from_yolov7(input_file, output=None):
 
     import torch
     with open(input_file, 'rb') as f:
-        model = torch.load(
+        model_data = torch.load(
             f,
             map_location=torch.device('cpu'),
             weights_only=False,
@@ -31,7 +31,7 @@ def convert_from_yolov7(input_file, output=None):
         )
 
     print(f"Saving model to {output}...")
-    torch.save(model, output)
+    torch.save(model_data, output)
 
     print(f"Conversion complete: {output}")
 
