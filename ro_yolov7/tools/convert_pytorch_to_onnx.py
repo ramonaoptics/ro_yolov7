@@ -36,7 +36,7 @@ def convert_pytorch_to_onnx(pytorch_model_path, height, width, channels=1):
         model,
         dummy_input,
         onnx_model_path,
-        opset_version=15,
+        opset_version=18,
         input_names=["input"],
         output_names=["output"],
         dynamic_axes={"input": {0: "batch_size"}, "output": {0: "batch_size"}},
