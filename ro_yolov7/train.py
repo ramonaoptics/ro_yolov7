@@ -52,6 +52,9 @@ def train(hyp, opt, device, tb_writer=None):
         opt.freeze,
     )
 
+    if weights == "yolov7-tiny.pt":
+        weights = Path(__file__).parent / "yolov7-tiny.pt"
+
     # Directories
     wdir = save_dir / "weights"
     wdir.mkdir(parents=True, exist_ok=True)  # make dir
@@ -974,7 +977,7 @@ def _yolo_training(opt):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--weights", type=str, default="yolo7-tiny.pt", help="initial weights path"
+        "--weights", type=str, default="yolov7-tiny.pt", help="initial weights path"
     )
     parser.add_argument(
         "--cfg",
