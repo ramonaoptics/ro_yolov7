@@ -1,7 +1,7 @@
 {% set python_min = "3.10" %}
 package:
   name: ro-yolov7
-  version: "0.4.1"
+  version: "0.4.2"
 
 source:
   path: ..
