@@ -40,6 +40,7 @@ def convert_pytorch_to_onnx(pytorch_model_path, height, width, channels=1):
         input_names=["input"],
         output_names=["output"],
         dynamic_axes={"input": {0: "batch_size"}, "output": {0: "batch_size"}},
+        dynamo=False,  # Use legacy exporter to avoid tensor subclass issues with opset 18
     )
 
     onnx_model = onnx.load(onnx_model_path)
