@@ -3,10 +3,26 @@ from pathlib import Path
 
 import onnx
 import torch
+import torch.nn as nn
 
 from ro_yolov7.tools.convert_from_yolov7 import convert_from_yolov7
 
 # from onnxconverter_common import float16
+
+
+class Ensemble(nn.ModuleList):
+    # Ensemble of models
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, x, augment=False):
+        y = []
+        for module in self:
+            y.append(module(x, augment)[0])
+        # y = torch.stack(y).max(0)[0]  # max ensemble
+        # y = torch.stack(y).mean(0)  # mean ensemble
+        y = torch.cat(y, 1)  # nms ensemble
+        return y, None  # inference, train output
 
 
 def convert_pytorch_to_onnx(pytorch_model_path, height, width, channels=1):
@@ -22,11 +38,9 @@ def convert_pytorch_to_onnx(pytorch_model_path, height, width, channels=1):
     # convert from yolov7 net format to ro_yolov7 format
     convert_from_yolov7(pytorch_model_path)
 
+    model = Ensemble()
     checkpoint = torch.load(ro_pytorch_model_path, map_location=device, weights_only=False)
-    # ensure we target the model here as we have loaded a checkpoint
-    model = checkpoint["model"]
-
-    model = model.float().eval().to(device)
+    model.append(checkpoint["model"].float().fuse().eval())
 
     dummy_input = torch.randn((1, int(channels), int(height), int(width))).to(device)
 
@@ -36,11 +50,10 @@ def convert_pytorch_to_onnx(pytorch_model_path, height, width, channels=1):
         model,
         dummy_input,
         onnx_model_path,
-        opset_version=18,
+        opset_version=15,
         input_names=["input"],
         output_names=["output"],
         dynamic_axes={"input": {0: "batch_size"}, "output": {0: "batch_size"}},
-        dynamo=False,  # Use legacy exporter to avoid tensor subclass issues with opset 18
     )
 
     onnx_model = onnx.load(onnx_model_path)
