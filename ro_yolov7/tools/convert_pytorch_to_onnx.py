@@ -34,13 +34,14 @@ def convert_pytorch_to_onnx(pytorch_model_path, height, width, channels=1):
     # work correctly and the performance difference is acceptable.
 
     pytorch_model_path = Path(pytorch_model_path)
-    # convert from yolov7 net format to ro_yolov7 format
-    # here we directly overwrite the original pytorch model file with ours
-    # so that it is easily loadable outside of the yolov7 package
-    convert_from_yolov7(pytorch_model_path, output=pytorch_model_path)
 
     model = Ensemble()
-    checkpoint = torch.load(pytorch_model_path, map_location=device, weights_only=False)
+    model_data = torch.load(
+        pytorch_model_path,
+        map_location=device,
+        weights_only=False,
+        pickle_module=ro_yolov7.tools.unpickler,
+    )
     model.append(checkpoint["model"].float().fuse().eval())
 
     dummy_input = torch.randn((1, int(channels), int(height), int(width))).to(device)
