@@ -25,6 +25,7 @@ from tqdm import tqdm
 from ro_yolov7 import test  # import test.py to get mAP after each epoch
 from ro_yolov7.models.experimental import attempt_load
 from ro_yolov7.models.yolo import Model
+from ro_yolov7.tools import unpickler
 from ro_yolov7.utils.autoanchor import check_anchors
 from ro_yolov7.utils.datasets import create_dataloader
 from ro_yolov7.utils.general import labels_to_class_weights, increment_path, labels_to_image_weights, init_seeds, \
@@ -82,7 +83,12 @@ def train(hyp, opt, device, tb_writer=None):
     if rank in [-1, 0]:
         opt.hyp = hyp  # add hyperparameters
         run_id = (
-            torch.load(weights, map_location=device, weights_only=False).get("wandb_id")
+            torch.load(
+                weights,
+                map_location=device,
+                weights_only=False,
+                pickle_module=unpickler
+            ).get("wandb_id")
             if weights.endswith(".pt") and os.path.isfile(weights)
             else None
         )
@@ -112,7 +118,7 @@ def train(hyp, opt, device, tb_writer=None):
     pretrained = weights.endswith(".pt")
     if pretrained:
         ckpt = torch.load(
-            weights, map_location=device, weights_only=False
+            weights, map_location=device, weights_only=False, pickle_module=unpickler
         )  # load checkpoint
         model = Model(
             opt.cfg or ckpt["model"].yaml, ch=1, nc=nc, anchors=hyp.get("anchors")

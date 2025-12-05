@@ -22,4 +22,11 @@ class Unpickler(Unpickler):
                 "models.common",
                 "ro_yolov7.models.common",
             )
+        # the below supports a few model weights trained with an alternative
+        # repo "ml_pipeline" which was a precursor to the current implementation
+        elif mod_name == "ml_pipeline.yolo.models.yolo":
+            mod_name = "ro_yolov7.models.yolo"
+        elif mod_name == "ml_pipeline.yolo.models.common":
+            mod_name = "ro_yolov7.models.common"
+
         return super().find_class(mod_name, name)

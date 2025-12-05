@@ -6,7 +6,6 @@ import torch
 import torch.nn as nn
 
 from ro_yolov7.tools import unpickler
-from ro_yolov7.tools.convert_from_yolov7 import convert_from_yolov7
 
 # from onnxconverter_common import float16
 
