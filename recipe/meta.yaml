@@ -1,7 +1,7 @@
 {% set python_min = "3.10" %}
 package:
   name: ro-yolov7
-  version: "0.4.5"
+  version: "0.4.6"
 
 source:
   path: ..
@@ -23,7 +23,7 @@ requirements:
   run:
     - python >={{ python_min }}
     - matplotlib-base
-    - numpy
+    - numpy >=2.0
     - opencv
     - pillow
     - pyyaml
