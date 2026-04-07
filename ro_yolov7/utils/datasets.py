@@ -6,7 +6,9 @@ import math
 import os
 import random
 import shutil
+import tarfile
 import time
+from io import BytesIO
 from itertools import repeat
 from multiprocessing.pool import ThreadPool
 from pathlib import Path
@@ -54,6 +56,8 @@ vid_formats = [
     "mkv",
 ]  # acceptable video suffixes
 logger = logging.getLogger(__name__)
+
+TAR_MEMBER_SEP = "\x1e"
 
 # Get orientation exif tag
 for orientation in ExifTags.TAGS.keys():
@@ -425,6 +429,99 @@ def img2label_paths(img_paths):
     ]
 
 
+def _tar_image_exts_set():
+    return frozenset(img_formats)
+
+
+def _is_yolo_tar_image_member(name):
+    p = Path(name)
+    ext = p.suffix.lower().lstrip(".")
+    if ext not in _tar_image_exts_set():
+        return False
+    if p.stem.endswith("_mask"):
+        return False
+    return True
+
+
+def is_tar_shard_yolo_subset_dir(path):
+    """True if the directory has shard_*.tar and no loose image files (OWL tar_shards layout)."""
+    p = Path(path)
+    if not p.is_dir():
+        return False
+    for f in p.iterdir():
+        if not f.is_file() or f.name.endswith(".tar"):
+            continue
+        ext = f.suffix.lower().lstrip(".")
+        if ext in _tar_image_exts_set():
+            return False
+    return bool(list(p.glob("shard_*.tar")))
+
+
+def build_yolo_tar_shard_samples(subset_dir):
+    """List (tar_path, image_member, tar_label_path, label_member) for YOLO training."""
+    subset_dir = Path(subset_dir)
+    if not subset_dir.is_dir():
+        return []
+    shard_paths = sorted(subset_dir.glob("shard_*.tar"))
+    if not shard_paths:
+        return []
+    all_members = set()
+    member_to_tar = {}
+    for tp in shard_paths:
+        with tarfile.open(tp, "r") as tf:
+            for m in tf.getmembers():
+                if m.isfile():
+                    all_members.add(m.name)
+                    member_to_tar[m.name] = tp
+    samples = []
+    for img_name in sorted(n for n in all_members if _is_yolo_tar_image_member(n)):
+        txt_name = Path(img_name).stem + ".txt"
+        if txt_name not in all_members:
+            continue
+        samples.append(
+            (
+                member_to_tar[img_name],
+                img_name,
+                member_to_tar[txt_name],
+                txt_name,
+            )
+        )
+    return samples
+
+
+def make_tar_member_ref(tar_path, member_name):
+    return f"{Path(tar_path).resolve().as_posix()}{TAR_MEMBER_SEP}{member_name}"
+
+
+def split_tar_member_ref(ref):
+    left, member = ref.split(TAR_MEMBER_SEP, 1)
+    return Path(left), member
+
+
+def read_tar_member_bytes(tar_path, member_name):
+    tar_path = Path(tar_path)
+    with tarfile.open(tar_path, "r") as tf:
+        member = tf.getmember(member_name)
+        extracted = tf.extractfile(member)
+        if extracted is None:
+            raise OSError(f"Cannot read member {member_name!r} from {tar_path}")
+        return extracted.read()
+
+
+def hash_paths_for_tar_shards(img_refs):
+    """Fingerprint tar shards + member names for labels.cache invalidation."""
+    s = 0
+    seen_tar = set()
+    for ref in img_refs:
+        tar_path, _ = split_tar_member_ref(ref)
+        tar_path = tar_path.resolve()
+        if tar_path not in seen_tar:
+            seen_tar.add(tar_path)
+            if tar_path.is_file():
+                s += os.path.getsize(tar_path)
+    return s + sum(len(r) for r in img_refs)
+
+
 def albumentations_is_available():
     try:
         import albumentations
@@ -468,13 +565,20 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         self.mosaic_border = [-img_size // 2, -img_size // 2]
         self.stride = stride
         self.path = path
+        self.tar_shard_mode = False
         try:
-            f = []  # image files
+            f = []  # loose image files
+            tar_img_refs = []
+            tar_lbl_refs = []
             for p in path if isinstance(path, list) else [path]:
                 p = Path(p)  # os-agnostic
-                if p.is_dir():  # dir
+                if p.is_dir() and is_tar_shard_yolo_subset_dir(p):
+                    for s in build_yolo_tar_shard_samples(p):
+                        ta, im, tb, lb = s
+                        tar_img_refs.append(make_tar_member_ref(ta, im))
+                        tar_lbl_refs.append(make_tar_member_ref(tb, lb))
+                elif p.is_dir():  # dir
                     f += glob.glob(str(p / "**" / "*.*"), recursive=True)
-                    # f = list(p.rglob('**/*.*'))  # pathlib
                 elif p.is_file():  # file
                     with open(p, "r") as t:
                         t = t.read().strip().splitlines()
@@ -482,41 +586,53 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                         f += [
                             x.replace("./", parent) if x.startswith("./") else x
                             for x in t
-                        ]  # local to global path
-                        # f += [p.parent / x.lstrip(os.sep) for x in t]  # local to global path (pathlib)
+                        ]
                 else:
                     raise Exception(f"{prefix}{p} does not exist")
-            self.img_files = sorted(
-                [
-                    x.replace("/", os.sep)
-                    for x in f
-                    if x.split(".")[-1].lower() in img_formats
-                ]
-            )
-            # self.img_files = sorted([x for x in f if x.suffix[1:].lower() in img_formats])  # pathlib
-            assert self.img_files, f"{prefix}No images found"
+            if tar_img_refs:
+                self.tar_shard_mode = True
+                self.img_files = tar_img_refs
+                self.label_files = tar_lbl_refs
+                assert self.img_files, f"{prefix}No images found in tar shards"
+            else:
+                self.img_files = sorted(
+                    [
+                        x.replace("/", os.sep)
+                        for x in f
+                        if x.split(".")[-1].lower() in img_formats
+                    ]
+                )
+                assert self.img_files, f"{prefix}No images found"
+                self.label_files = img2label_paths(self.img_files)  # labels
         except Exception as e:
             raise Exception(
                 f"{prefix}Error loading data from {path}: {e}"  # \nSee {help_url}"
             )
 
-        # Check cache
-        self.label_files = img2label_paths(self.img_files)  # labels
+        _img_to_label = dict(zip(self.img_files, self.label_files))
 
         # John - 20250421 - check how many labels there are per file
         # and if there are a lot, be sure to turn off mosaic
         for label_path in self.label_files:
-            with open(label_path, "r") as f:
-                annotations = f.readlines()
-                # 500 is an arbitrary big number threshold
-                if len(annotations) > 500:
-                    self.mosaic = False
-                    os.environ["YOLO_MANY_LABELS"] = "true"
-                    break
+            if self.tar_shard_mode:
+                tlb, lbl_m = split_tar_member_ref(label_path)
+                lb_data = read_tar_member_bytes(tlb, lbl_m)
+                annotations = lb_data.decode("utf-8").splitlines()
+            else:
+                with open(label_path, "r") as f:
+                    annotations = f.readlines()
+            if len(annotations) > 500:
+                self.mosaic = False
+                os.environ["YOLO_MANY_LABELS"] = "true"
+                break
 
-        cache_path = (
-            p if p.is_file() else Path(self.label_files[0]).parent
-        ).with_suffix(".cache")  # cached labels
+        if self.tar_shard_mode:
+            first_img = split_tar_member_ref(self.img_files[0])[0]
+            cache_path = first_img.parent / "labels.cache"
+        else:
+            cache_path = (
+                p if p.is_file() else Path(self.label_files[0]).parent
+            ).with_suffix(".cache")  # cached labels
         # John - 20251111 - We never use cached labels because
         # the cache can hide changes to the dataset
         # if cache_path.is_file():
@@ -545,7 +661,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         self.labels = list(labels)
         self.shapes = np.array(shapes, dtype=np.float64)
         self.img_files = list(cache.keys())  # update
-        self.label_files = img2label_paths(cache.keys())  # update
+        self.label_files = [_img_to_label[k] for k in self.img_files]
         if single_cls:
             for x in self.labels:
                 x[:, 0] = 0
@@ -587,13 +703,22 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         self.imgs = [None] * n
         if cache_images:
             if cache_images == "disk":
-                self.im_cache_dir = Path(
-                    Path(self.img_files[0]).parent.as_posix() + "_npy"
-                )
-                self.img_npy = [
-                    self.im_cache_dir / Path(f).with_suffix(".npy").name
-                    for f in self.img_files
-                ]
+                if self.tar_shard_mode:
+                    shard0 = split_tar_member_ref(self.img_files[0])[0]
+                    self.im_cache_dir = Path(shard0.parent.as_posix() + "_npy")
+                    self.img_npy = [
+                        self.im_cache_dir
+                        / f"{i:08d}_{hash(f) & 0xFFFFFFFFFFFF:012x}.npy"
+                        for i, f in enumerate(self.img_files)
+                    ]
+                else:
+                    self.im_cache_dir = Path(
+                        Path(self.img_files[0]).parent.as_posix() + "_npy"
+                    )
+                    self.img_npy = [
+                        self.im_cache_dir / Path(f).with_suffix(".npy").name
+                        for f in self.img_files
+                    ]
                 self.im_cache_dir.mkdir(parents=True, exist_ok=True)
             gb = 0  # Gigabytes of cached images
             self.img_hw0, self.img_hw = [None] * n, [None] * n
@@ -625,30 +750,52 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         for i, (im_file, lb_file) in enumerate(pbar):
             try:
                 # verify images
-                im = Image.open(im_file)
-                im.verify()  # PIL verify
-                shape = exif_size(im)  # image size
+                if self.tar_shard_mode:
+                    tar_im, img_m = split_tar_member_ref(im_file)
+                    img_bytes = read_tar_member_bytes(tar_im, img_m)
+                    im = Image.open(BytesIO(img_bytes))
+                    im.verify()  # PIL verify
+                    im = Image.open(BytesIO(img_bytes))
+                    shape = exif_size(im)  # image size
+                    ext = Path(img_m).suffix.lower().lstrip(".")
+                    assert ext in img_formats, f"invalid image extension .{ext}"
+                else:
+                    im = Image.open(im_file)
+                    im.verify()  # PIL verify
+                    im = Image.open(im_file)
+                    shape = exif_size(im)  # image size
+                    assert im.format.lower() in img_formats, (
+                        f"invalid image format {im.format}"
+                    )
                 segments = []  # instance segments
                 assert (shape[0] > 9) & (shape[1] > 9), f"image size {shape} <10 pixels"
-                assert im.format.lower() in img_formats, (
-                    f"invalid image format {im.format}"
-                )
 
                 # verify labels
-                if os.path.isfile(lb_file):
+                if self.tar_shard_mode or os.path.isfile(lb_file):
                     nf += 1  # label found
-                    with open(lb_file, "r") as f:
-                        l = [x.split() for x in f.read().strip().splitlines()]
-                        if any([len(x) > 8 for x in l]):  # is segment
-                            classes = np.array([x[0] for x in l], dtype=np.float32)
-                            segments = [
-                                np.array(x[1:], dtype=np.float32).reshape(-1, 2)
-                                for x in l
-                            ]  # (cls, xy1...)
-                            l = np.concatenate(
-                                (classes.reshape(-1, 1), segments2boxes(segments)), 1
-                            )  # (cls, xywh)
-                        l = np.array(l, dtype=np.float32)
+                    if self.tar_shard_mode:
+                        tlb, lbl_m = split_tar_member_ref(lb_file)
+                        lb_raw = read_tar_member_bytes(tlb, lbl_m)
+                        l = [
+                            x.split()
+                            for x in lb_raw.decode("utf-8").strip().splitlines()
+                        ]
+                    else:
+                        with open(lb_file, "r") as f:
+                            l = [
+                                x.split()
+                                for x in f.read().strip().splitlines()
+                            ]
+                    if any([len(x) > 8 for x in l]):  # is segment
+                        classes = np.array([x[0] for x in l], dtype=np.float32)
+                        segments = [
+                            np.array(x[1:], dtype=np.float32).reshape(-1, 2)
+                            for x in l
+                        ]  # (cls, xy1...)
+                        l = np.concatenate(
+                            (classes.reshape(-1, 1), segments2boxes(segments)), 1
+                        )  # (cls, xywh)
+                    l = np.array(l, dtype=np.float32)
                     if len(l):
                         assert l.shape[1] == 5, "labels require 5 columns each"
                         assert (l >= 0).all(), "negative labels"
@@ -681,7 +828,10 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         if nf == 0:
             warn(f"{prefix}WARNING: No labels found in {path}.", stacklevel=2)  # See {help_url}
 
-        x["hash"] = get_hash(self.label_files + self.img_files)
+        if self.tar_shard_mode:
+            x["hash"] = hash_paths_for_tar_shards(list(self.img_files))
+        else:
+            x["hash"] = get_hash(self.label_files + self.img_files)
         x["results"] = nf, nm, ne, nc, i + 1
         x["version"] = 0.1  # cache version
         torch.save(x, path)  # save for next time
@@ -884,11 +1034,21 @@ def load_image(self, index):
         path = self.img_files[index]
 
         # John - make it one channel
-        # img = cv2.imread(path)  # BGR
-        img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
-        img = img[:, :, None]
+        if getattr(self, "tar_shard_mode", False):
+            tar_p, member = split_tar_member_ref(path)
+            data = read_tar_member_bytes(tar_p, member)
+            buf = np.frombuffer(data, dtype=np.uint8)
+            img = cv2.imdecode(buf, cv2.IMREAD_GRAYSCALE)
+            if img is None:
+                im = Image.open(BytesIO(data))
+                img = np.array(im.convert("L"))
+            img = img[:, :, None]
+        else:
+            # img = cv2.imread(path)  # BGR
+            img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+            img = img[:, :, None]
 
-        assert img is not None, "Image Not Found " + path
+        assert img is not None, "Image Not Found " + str(path)
         h0, w0 = img.shape[:2]  # orig hw
         r = self.img_size / max(h0, w0)  # resize image to img_size
         if r != 1:  # always resize down, only resize up if training with augmentation
