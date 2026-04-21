@@ -121,7 +121,10 @@ def train(hyp, opt, device, tb_writer=None):
             weights, map_location=device, weights_only=False, pickle_module=unpickler
         )  # load checkpoint
         model = Model(
-            opt.cfg or ckpt["model"].yaml, ch=1, nc=nc, anchors=hyp.get("anchors")
+            opt.cfg or ckpt["model"].yaml,
+            ch=opt.num_channels,
+            nc=nc,
+            anchors=hyp.get("anchors"),
         ).to(device)  # create
         exclude = (
             ["anchor"] if (opt.cfg or hyp.get("anchors")) and not opt.resume else []
@@ -136,9 +139,9 @@ def train(hyp, opt, device, tb_writer=None):
             % (len(state_dict), len(model.state_dict()), weights)
         )  # report
     else:
-        model = Model(opt.cfg, ch=1, nc=nc, anchors=hyp.get("anchors")).to(
-            device
-        )  # create
+        model = Model(
+            opt.cfg, ch=opt.num_channels, nc=nc, anchors=hyp.get("anchors")
+        ).to(device)  # create
     with torch_distributed_zero_first(rank):
         check_dataset(data_dict)  # check
     train_path = data_dict["train"]
@@ -520,8 +523,6 @@ def train(hyp, opt, device, tb_writer=None):
             with warnings.catch_warnings():
                 warnings.filterwarnings('ignore', category=FutureWarning, message='.*autocast.*')
                 with amp.autocast(enabled=cuda):
-                    imgs = imgs.squeeze(-1)
-
                     pred = model(imgs)  # forward
                     if "loss_ota" not in hyp or hyp["loss_ota"] == 1:
                         loss, loss_items = compute_loss_ota(
@@ -1109,6 +1110,13 @@ def main():
         "--v5-metric",
         action="store_true",
         help="assume maximum recall as 1.0 in AP calculation",
+    )
+    parser.add_argument(
+        "--num_channels",
+        type=int,
+        default=1,
+        help="number of input image channels (e.g. 1 for grayscale, 3 for RGB). "
+             "When != 1, images are assumed to be shape (H, W, C).",
     )
     opt = parser.parse_args()
 

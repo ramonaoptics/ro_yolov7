@@ -118,6 +118,7 @@ def create_dataloader(
             pad=pad,
             image_weights=image_weights,
             prefix=prefix,
+            num_channels=getattr(opt, "num_channels", 1),
         )
 
     batch_size = min(batch_size, len(dataset))
@@ -546,8 +547,10 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         stride=32,
         pad=0.0,
         prefix="",
+        num_channels=1,
     ):
         self.img_size = img_size
+        self.num_channels = num_channels
         if augment:
             if albumentations_is_available():
                 self.augmentations = Albumentations()
@@ -963,10 +966,10 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         if nL:
             labels_out[:, 1:] = torch.from_numpy(labels)
 
-        # Convert
-        # John - Add a channel dimension for gray images
-        img = img[..., None]
-        img = img[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, to 3x416x416
+        # Convert: ensure (H, W, C) then transpose to (C, H, W) for PyTorch
+        if img.ndim == 2:
+            img = img[:, :, None]
+        img = img.transpose(2, 0, 1)  # HWC -> CHW
         img = np.ascontiguousarray(img)
 
         return torch.from_numpy(img), labels_out, self.img_files[index], shapes
@@ -1032,28 +1035,47 @@ def load_image(self, index):
     img = self.imgs[index]
     if img is None:  # not cached
         path = self.img_files[index]
+        num_channels = getattr(self, "num_channels", 1)
 
-        # John - make it one channel
         if getattr(self, "tar_shard_mode", False):
             tar_p, member = split_tar_member_ref(path)
             data = read_tar_member_bytes(tar_p, member)
             buf = np.frombuffer(data, dtype=np.uint8)
-            img = cv2.imdecode(buf, cv2.IMREAD_GRAYSCALE)
-            if img is None:
-                im = Image.open(BytesIO(data))
-                img = np.array(im.convert("L"))
-            img = img[:, :, None]
+            if num_channels == 1:
+                img = cv2.imdecode(buf, cv2.IMREAD_GRAYSCALE)
+                if img is None:
+                    im = Image.open(BytesIO(data))
+                    img = np.array(im.convert("L"))
+            else:
+                img = cv2.imdecode(buf, cv2.IMREAD_UNCHANGED)
+                if img is None:
+                    im = Image.open(BytesIO(data))
+                    img = np.array(im)
         else:
-            # img = cv2.imread(path)  # BGR
-            img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
-            img = img[:, :, None]
+            if num_channels == 1:
+                img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+            else:
+                img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
 
         assert img is not None, "Image Not Found " + str(path)
+
+        # Normalize to (H, W, C)
+        if img.ndim == 2:
+            img = img[:, :, None]
+
+        assert img.shape[2] == num_channels, (
+            f"Image {path} has {img.shape[2]} channels but "
+            f"num_channels={num_channels} was requested."
+        )
+
         h0, w0 = img.shape[:2]  # orig hw
         r = self.img_size / max(h0, w0)  # resize image to img_size
         if r != 1:  # always resize down, only resize up if training with augmentation
             interp = cv2.INTER_AREA if r < 1 and not self.augment else cv2.INTER_LINEAR
             img = cv2.resize(img, (int(w0 * r), int(h0 * r)), interpolation=interp)
+            # cv2.resize drops a trailing singleton channel; restore to (H, W, C)
+            if img.ndim == 2:
+                img = img[:, :, None]
         return img, (h0, w0), img.shape[:2]  # img, hw_original, hw_resized
     else:
         return (
@@ -1799,9 +1821,21 @@ class PyTorchAugments:
         ])
 
     def __call__(self, image, labels):
-        image = self.transform(TvImage(image))
-        image = image[0].numpy()
-        return image, labels
+        # torchvision v2 transforms expect (C, H, W) tensors. The caller passes
+        # the image as (H, W, C) numpy, so we transpose before/after the transform.
+        if image.ndim == 2:
+            image_hwc = image[:, :, None]
+        else:
+            image_hwc = image
+        tensor = torch.from_numpy(
+            np.ascontiguousarray(image_hwc.transpose(2, 0, 1))
+        )  # HWC -> CHW
+        tensor = self.transform(TvImage(tensor))
+        # CHW tensor -> HWC numpy
+        result = tensor.numpy().transpose(1, 2, 0)
+        if image.ndim == 2:
+            result = result[:, :, 0]
+        return result, labels
 
 
 def create_folder(path="./new"):
