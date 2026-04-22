@@ -140,7 +140,7 @@ def ml_dataset_multi_channel():
     shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-def test_training_from_subprocess(ml_dataset_multi_channel):
+def test_training_from_subprocess_multi_channel(ml_dataset_multi_channel):
     dataset_dir = ml_dataset_multi_channel
     data_yaml = dataset_dir / 'data.yaml'
     cfg_path = Path(ro_yolov7.__file__).parent / 'cfg' / 'training' / 'yolov7-tiny.yaml'
