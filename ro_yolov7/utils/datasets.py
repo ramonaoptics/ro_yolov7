@@ -555,7 +555,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
             if albumentations_is_available():
                 self.augmentations = Albumentations()
             else:
-                self.augmentations = PyTorchAugments()
+                self.augmentations = PyTorchAugments(num_channels=num_channels)
         else:
             self.augmentations = None
         self.augment = augment
@@ -1802,23 +1802,32 @@ class Albumentations:
 
 class PyTorchAugments:
     # Ramona PyTorch Augmentations class for image color/quality augmentations
-    def __init__(self):
-        self.transform = v2.Compose([
+    def __init__(self, num_channels=1):
+        self.num_channels = num_channels
+        transforms = [
             # John and Caleb agreed CLAHE is not helpful, it is a deterministic
             # process and not useful for augmentation
             v2.RandomApply([v2.GaussianBlur(kernel_size=3, sigma=(0.1, 2.0))], p=0.01),
-            v2.RandomApply([v2.ColorJitter(brightness=0.2, contrast=0.2)], p=0.01),
-            v2.RandomApply([
-                v2.Lambda(
-                    lambda x: x if isinstance(x, TvMask)
-                    else v2.functional.adjust_gamma(
-                        x, float(torch.empty(()).uniform_(0.7, 1.5))
+        ]
+        # torchvision color transforms only support 1 or 3 channel images, so
+        # skip them for arbitrary multi-channel imagery (e.g. 4+ channel inputs).
+        if num_channels in (1, 3):
+            transforms.extend([
+                v2.RandomApply(
+                    [v2.ColorJitter(brightness=0.2, contrast=0.2)], p=0.01
+                ),
+                v2.RandomApply([
+                    v2.Lambda(
+                        lambda x: x if isinstance(x, TvMask)
+                        else v2.functional.adjust_gamma(
+                            x, float(torch.empty(()).uniform_(0.7, 1.5))
+                        )
                     )
-                )
-            ], p=0.01)
+                ], p=0.01),
+            ])
             # The albumentation augment for image compression was not considered useful
             # as the data we work with is lossless anyways
-        ])
+        self.transform = v2.Compose(transforms)
 
     def __call__(self, image, labels):
         # torchvision v2 transforms expect (C, H, W) tensors. The caller passes
