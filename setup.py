@@ -12,6 +12,7 @@ requirements = [
     "opencv-python",
     "Pillow",
     "PyYAML",
+    "tifffile",
     "requests",
     "scipy",
     "torch",

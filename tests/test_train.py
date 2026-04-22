@@ -2,8 +2,9 @@ import tempfile
 import shutil
 from pathlib import Path
 import numpy as np
-import cv2
 import yaml
+
+from ro_yolov7.utils.image_io import imwrite
 import subprocess
 import pytest
 
@@ -32,7 +33,7 @@ def ml_dataset():
         # Create a blank grayscale image (matching the project's grayscale format)
         img = np.zeros((640, 640), dtype=np.uint8)
         img_path = split_dir / f'{split}_image.jpg'
-        cv2.imwrite(str(img_path), img)
+        imwrite(str(img_path), img)
 
         # Create a corresponding label file with one annotation
         # Format: class x_center y_center width height (normalized 0-1)

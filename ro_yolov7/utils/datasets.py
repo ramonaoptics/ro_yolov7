@@ -31,6 +31,7 @@ from tqdm import tqdm
 from ro_yolov7.utils.general import xyxy2xywh, xywh2xyxy, xywhn2xyxy, xyn2xy, segment2box, segments2boxes, \
     resample_segments, clean_str
 from ro_yolov7.utils.torch_utils import torch_distributed_zero_first
+from ro_yolov7.utils.image_io import imread, imwrite, imdecode, is_tiff_path
 
 # Parameters
 help_url = "https://github.com/ultralytics/yolov5/wiki/Train-Custom-Data"
@@ -239,7 +240,7 @@ class LoadImages:  # for inference
         else:
             # Read image
             self.count += 1
-            img0 = cv2.imread(path)  # BGR
+            img0 = imread(path)  # BGR
             assert img0 is not None, "Image Not Found " + path
             # print(f'image {self.count}/{self.nf} {path}: ', end='')
 
@@ -1037,15 +1038,18 @@ def load_image(self, index):
         if getattr(self, "tar_shard_mode", False):
             tar_p, member = split_tar_member_ref(path)
             data = read_tar_member_bytes(tar_p, member)
-            buf = np.frombuffer(data, dtype=np.uint8)
-            img = cv2.imdecode(buf, cv2.IMREAD_GRAYSCALE)
+            if is_tiff_path(member):
+                img = imdecode(data, cv2.IMREAD_GRAYSCALE, path_hint=member)
+            else:
+                buf = np.frombuffer(data, dtype=np.uint8)
+                img = cv2.imdecode(buf, cv2.IMREAD_GRAYSCALE)
             if img is None:
                 im = Image.open(BytesIO(data))
                 img = np.array(im.convert("L"))
             img = img[:, :, None]
         else:
-            # img = cv2.imread(path)  # BGR
-            img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+            # img = imread(path)  # BGR
+            img = imread(path, cv2.IMREAD_GRAYSCALE)
             img = img[:, :, None]
 
         assert img is not None, "Image Not Found " + str(path)
@@ -1833,7 +1837,7 @@ def extract_boxes(
     for im_file in tqdm(files, total=n):
         if im_file.suffix[1:] in img_formats:
             # image
-            im = cv2.imread(str(im_file))[..., ::-1]  # BGR to RGB
+            im = imread(str(im_file))[..., ::-1]  # BGR to RGB
             h, w = im.shape[:2]
 
             # labels
@@ -1862,7 +1866,7 @@ def extract_boxes(
 
                     b[[0, 2]] = np.clip(b[[0, 2]], 0, w)  # clip boxes outside of image
                     b[[1, 3]] = np.clip(b[[1, 3]], 0, h)
-                    assert cv2.imwrite(str(f), im[b[1] : b[3], b[0] : b[2]]), (
+                    assert imwrite(str(f), im[b[1] : b[3], b[0] : b[2]]), (
                         f"box failure in {f}"
                     )
 
