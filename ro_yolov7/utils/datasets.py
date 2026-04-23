@@ -17,6 +17,7 @@ from warnings import warn
 
 import cv2
 import numpy as np
+import tifffile
 import torch
 import torch.nn.functional as F
 from PIL import ExifTags, Image
@@ -1030,6 +1031,64 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
 
 
 # Ancillary functions --------------------------------------------------------------------------------------------------
+def _is_tiff_path(path):
+    ext = Path(str(path)).suffix.lower()
+    return ext in (".tif", ".tiff")
+
+
+def _is_tiff_bytes(data):
+    if len(data) < 4:
+        return False
+    header = bytes(data[:4])
+    # Little-endian TIFF ("II*\0") or big-endian TIFF ("MM\0*")
+    return header[:2] in (b"II", b"MM") and header[2:4] in (
+        b"\x2a\x00", b"\x00\x2a"
+    )
+
+
+def _read_image_file(path, num_channels):
+    # For multi-channel images saved as TIFF (including 4+ channels written
+    # by tifffile with ExtraSamples=UNASSALPHA), cv2.imread silently BGR-swaps
+    # and premultiplies channels 1-3 by the alpha channel. That corrupts the
+    # training data and prevents the model from learning. Use tifffile for
+    # multi-channel TIFFs to avoid these conversions entirely.
+    if _is_tiff_path(path):
+        if num_channels == 1:
+            img = tifffile.imread(str(path))
+            if img.ndim == 3 and img.shape[-1] != 1:
+                # Multi-channel TIFF requested as single channel; keep first
+                img = img[..., 0]
+            return img
+        return tifffile.imread(str(path))
+
+    if num_channels == 1:
+        return cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
+    return cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+
+
+def _decode_image_bytes(data, num_channels, path=""):
+    # Multi-channel TIFFs must go through tifffile for the same reason
+    # documented in _read_image_file.
+    if _is_tiff_bytes(data):
+        img = tifffile.imread(BytesIO(data))
+        if num_channels == 1 and img.ndim == 3 and img.shape[-1] != 1:
+            img = img[..., 0]
+        return img
+
+    buf = np.frombuffer(data, dtype=np.uint8)
+    if num_channels == 1:
+        img = cv2.imdecode(buf, cv2.IMREAD_GRAYSCALE)
+        if img is None:
+            im = Image.open(BytesIO(data))
+            img = np.array(im.convert("L"))
+    else:
+        img = cv2.imdecode(buf, cv2.IMREAD_UNCHANGED)
+        if img is None:
+            im = Image.open(BytesIO(data))
+            img = np.array(im)
+    return img
+
+
 def load_image(self, index):
     # loads 1 image from dataset, returns img, original hw, resized hw
     img = self.imgs[index]
@@ -1040,22 +1099,11 @@ def load_image(self, index):
         if getattr(self, "tar_shard_mode", False):
             tar_p, member = split_tar_member_ref(path)
             data = read_tar_member_bytes(tar_p, member)
-            buf = np.frombuffer(data, dtype=np.uint8)
-            if num_channels == 1:
-                img = cv2.imdecode(buf, cv2.IMREAD_GRAYSCALE)
-                if img is None:
-                    im = Image.open(BytesIO(data))
-                    img = np.array(im.convert("L"))
-            else:
-                img = cv2.imdecode(buf, cv2.IMREAD_UNCHANGED)
-                if img is None:
-                    im = Image.open(BytesIO(data))
-                    img = np.array(im)
+            img = _decode_image_bytes(
+                data, num_channels=num_channels, path=str(path)
+            )
         else:
-            if num_channels == 1:
-                img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
-            else:
-                img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
+            img = _read_image_file(path, num_channels=num_channels)
 
         assert img is not None, "Image Not Found " + str(path)
 
@@ -1504,12 +1552,44 @@ def letterbox(
 
     if shape[::-1] != new_unpad:  # resize
         img = cv2.resize(img, new_unpad, interpolation=cv2.INTER_LINEAR)
+        # cv2.resize drops a trailing singleton channel; restore to (H, W, C)
+        if img.ndim == 2:
+            img = img[:, :, None]
     top, bottom = int(round(dh - 0.1)), int(round(dh + 0.1))
     left, right = int(round(dw - 0.1)), int(round(dw + 0.1))
+    border_value = _match_border_value(color, img)
     img = cv2.copyMakeBorder(
-        img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color
+        img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=border_value
     )  # add border
     return img, ratio, (dw, dh)
+
+
+def _match_border_value(color, img):
+    # OpenCV border routines expect the fill value to have exactly as many
+    # elements as the image has channels. The default (114, 114, 114) works for
+    # 1- and 3-channel images but needs to be extended for multi-channel (e.g.
+    # 4+) microscopy data.
+    if img.ndim == 2:
+        channels = 1
+    else:
+        channels = img.shape[2]
+
+    if isinstance(color, (int, float)):
+        base = int(color)
+        return tuple([base] * channels)
+
+    color_seq = list(color)
+    if len(color_seq) == channels:
+        return tuple(color_seq)
+    if len(color_seq) == 1:
+        return tuple(color_seq * channels)
+    # Tile the provided values to reach the required channel count, padding
+    # with the first value if we need extra components.
+    fill = color_seq[0] if color_seq else 0
+    result = list(color_seq[:channels])
+    while len(result) < channels:
+        result.append(fill)
+    return tuple(result)
 
 
 def random_perspective(
@@ -1564,14 +1644,17 @@ def random_perspective(
     # Combined rotation matrix
     M = T @ S @ R @ P @ C  # order of operations (right to left) is IMPORTANT
     if (border[0] != 0) or (border[1] != 0) or (M != np.eye(3)).any():  # image changed
+        border_value = _match_border_value((114, 114, 114), img)
         if perspective:
             img = cv2.warpPerspective(
-                img, M, dsize=(width, height), borderValue=(114, 114, 114)
+                img, M, dsize=(width, height), borderValue=border_value
             )
         else:  # affine
             img = cv2.warpAffine(
-                img, M[:2], dsize=(width, height), borderValue=(114, 114, 114)
+                img, M[:2], dsize=(width, height), borderValue=border_value
             )
+        if img.ndim == 2:
+            img = img[:, :, None]
 
     # Visualize
     # import matplotlib.pyplot as plt
