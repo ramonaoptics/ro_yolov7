@@ -4,10 +4,10 @@ matplotlib
 numpy >=2.0
 opencv-python
 Pillow
-tifffile
 PyYAML
 requests
 scipy
+tifffile
 torch
 torchvision
 tqdm

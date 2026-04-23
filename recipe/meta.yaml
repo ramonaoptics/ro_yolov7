@@ -1,7 +1,7 @@
 {% set python_min = "3.10" %}
 package:
   name: ro-yolov7
-  version: "0.4.8"
+  version: "0.4.9"
 
 source:
   path: ..
@@ -30,6 +30,7 @@ requirements:
     - requests
     - scipy
     - pytorch
+    - tifffile
     - torchvision
     - tqdm
     - onnx
