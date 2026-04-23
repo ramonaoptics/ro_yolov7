@@ -13,6 +13,7 @@ from ro_yolov7.utils.general import check_img_size, check_imshow, non_max_suppre
     scale_coords, xyxy2xywh, strip_optimizer, increment_path
 from ro_yolov7.utils.plots import plot_one_box
 from ro_yolov7.utils.torch_utils import select_device, load_classifier, time_synchronized, TracedModel
+from ro_yolov7.utils.image_io import imwrite
 
 
 def detect(save_img=False):
@@ -138,7 +139,7 @@ def detect(save_img=False):
             # Save results (image with detections)
             if save_img:
                 if dataset.mode == 'image':
-                    cv2.imwrite(save_path, im0)
+                    imwrite(save_path, im0)
                     print(f" The image with the result is saved in: {save_path}")
                 else:  # 'video' or 'stream'
                     if vid_path != save_path:  # new video

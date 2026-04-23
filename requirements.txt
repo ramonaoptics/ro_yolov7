@@ -7,6 +7,7 @@ Pillow
 PyYAML
 requests
 scipy
+tifffile
 torch
 torchvision
 tqdm

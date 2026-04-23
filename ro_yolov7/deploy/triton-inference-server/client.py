@@ -4,6 +4,15 @@ import argparse
 import numpy as np
 import sys
 import cv2
+from pathlib import Path
+
+try:
+    from ro_yolov7.utils.image_io import imread, imwrite
+except ImportError:
+    _r = Path(__file__).resolve().parent.parent.parent.parent
+    if str(_r) not in sys.path:
+        sys.path.insert(0, str(_r))
+    from ro_yolov7.utils.image_io import imread, imwrite
 
 import tritonclient.grpc as grpcclient
 from tritonclient.utils import InferenceServerException
@@ -203,7 +212,7 @@ if __name__ == '__main__':
         outputs.append(grpcclient.InferRequestedOutput(OUTPUT_NAMES[3]))
 
         print("Creating buffer from image file...")
-        input_image = cv2.imread(str(FLAGS.input))
+        input_image = imread(str(FLAGS.input))
         if input_image is None:
             print(f"FAILED: could not load input image {str(FLAGS.input)}")
             sys.exit(1)
@@ -245,7 +254,7 @@ if __name__ == '__main__':
             input_image = render_text(input_image, f"{COCOLabels(box.classID).name}: {box.confidence:.2f}", (box.x1, box.y1), color=(30, 30, 30), normalised_scaling=0.5)
 
         if FLAGS.out:
-            cv2.imwrite(FLAGS.out, input_image)
+            imwrite(FLAGS.out, input_image)
             print(f"Saved result to {FLAGS.out}")
         else:
             cv2.imshow('image', input_image)
