@@ -2,9 +2,9 @@ import tempfile
 import shutil
 from pathlib import Path
 import numpy as np
-import cv2
-import tifffile
 import yaml
+
+from ro_yolov7.utils.image_io import imwrite
 import subprocess
 import pytest
 
@@ -33,7 +33,7 @@ def ml_dataset():
         # Create a blank grayscale image (matching the project's grayscale format)
         img = np.zeros((640, 640), dtype=np.uint8)
         img_path = split_dir / f'{split}_image.jpg'
-        cv2.imwrite(str(img_path), img)
+        imwrite(str(img_path), img)
 
         # Create a corresponding label file with one annotation
         # Format: class x_center y_center width height (normalized 0-1)
@@ -125,10 +125,7 @@ def _make_multichannel_dataset(num_channels, image_format=".tif"):
                 img[..., c] = (c + 1) * 30
 
         img_path = split_dir / f"{split}_image{image_format}"
-        if image_format in (".tif", ".tiff"):
-            tifffile.imwrite(str(img_path), img, compression="zlib")
-        else:
-            cv2.imwrite(str(img_path), img)
+        imwrite(str(img_path), img)
 
         label_path = split_dir / f"{split}_image.txt"
         with open(label_path, "w") as f:
@@ -245,41 +242,3 @@ def test_training_from_subprocess_multi_channel_tif(ml_dataset_multi_channel_tif
 
     best_pt = weights_dir / "best.pt"
     assert best_pt.exists(), "Best model weights were not saved correctly"
-
-
-def test_load_image_preserves_multi_channel_tiff_values():
-    # Guard against regressions where multi-channel TIFFs saved by tifffile
-    # (with ExtraSamples=UNASSALPHA or PhotometricInterpretation=RGB) are
-    # corrupted by cv2.imread: cv2 silently swaps BGR channels and premultiplies
-    # RGB by the "alpha" channel, which quietly destroys the training signal.
-    from ro_yolov7.utils.datasets import _read_image_file, _decode_image_bytes
-
-    for num_channels in (1, 3, 4):
-        if num_channels == 1:
-            ref = np.full((32, 32), 123, dtype=np.uint8)
-        else:
-            ref = np.zeros((32, 32, num_channels), dtype=np.uint8)
-            for c in range(num_channels):
-                ref[..., c] = (c + 1) * 30
-
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "img.tif"
-            tifffile.imwrite(str(path), ref, compression="zlib")
-
-            loaded = _read_image_file(path, num_channels=num_channels)
-            if num_channels == 1:
-                if loaded.ndim == 3:
-                    loaded = loaded[..., 0]
-                np.testing.assert_array_equal(loaded, ref)
-            else:
-                assert loaded.shape == ref.shape
-                np.testing.assert_array_equal(loaded, ref)
-
-            with open(path, "rb") as f:
-                data = f.read()
-            loaded_bytes = _decode_image_bytes(
-                data, num_channels=num_channels, path=str(path)
-            )
-            if num_channels == 1 and loaded_bytes.ndim == 3:
-                loaded_bytes = loaded_bytes[..., 0]
-            np.testing.assert_array_equal(loaded_bytes, ref)

@@ -17,7 +17,6 @@ from warnings import warn
 
 import cv2
 import numpy as np
-import tifffile
 import torch
 import torch.nn.functional as F
 from PIL import ExifTags, Image
@@ -32,6 +31,7 @@ from tqdm import tqdm
 from ro_yolov7.utils.general import xyxy2xywh, xywh2xyxy, xywhn2xyxy, xyn2xy, segment2box, segments2boxes, \
     resample_segments, clean_str
 from ro_yolov7.utils.torch_utils import torch_distributed_zero_first
+from ro_yolov7.utils.image_io import imread, imwrite, imdecode
 
 # Parameters
 help_url = "https://github.com/ultralytics/yolov5/wiki/Train-Custom-Data"
@@ -241,7 +241,7 @@ class LoadImages:  # for inference
         else:
             # Read image
             self.count += 1
-            img0 = cv2.imread(path)  # BGR
+            img0 = imread(path)  # BGR
             assert img0 is not None, "Image Not Found " + path
             # print(f'image {self.count}/{self.nf} {path}: ', end='')
 
@@ -1031,79 +1031,23 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
 
 
 # Ancillary functions --------------------------------------------------------------------------------------------------
-def _is_tiff_path(path):
-    ext = Path(str(path)).suffix.lower()
-    return ext in (".tif", ".tiff")
-
-
-def _is_tiff_bytes(data):
-    if len(data) < 4:
-        return False
-    header = bytes(data[:4])
-    # Little-endian TIFF ("II*\0") or big-endian TIFF ("MM\0*")
-    return header[:2] in (b"II", b"MM") and header[2:4] in (
-        b"\x2a\x00", b"\x00\x2a"
-    )
-
-
-def _read_image_file(path, num_channels):
-    # For multi-channel images saved as TIFF (including 4+ channels written
-    # by tifffile with ExtraSamples=UNASSALPHA), cv2.imread silently BGR-swaps
-    # and premultiplies channels 1-3 by the alpha channel. That corrupts the
-    # training data and prevents the model from learning. Use tifffile for
-    # multi-channel TIFFs to avoid these conversions entirely.
-    if _is_tiff_path(path):
-        if num_channels == 1:
-            img = tifffile.imread(str(path))
-            if img.ndim == 3 and img.shape[-1] != 1:
-                # Multi-channel TIFF requested as single channel; keep first
-                img = img[..., 0]
-            return img
-        return tifffile.imread(str(path))
-
-    if num_channels == 1:
-        return cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
-    return cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
-
-
-def _decode_image_bytes(data, num_channels, path=""):
-    # Multi-channel TIFFs must go through tifffile for the same reason
-    # documented in _read_image_file.
-    if _is_tiff_bytes(data):
-        img = tifffile.imread(BytesIO(data))
-        if num_channels == 1 and img.ndim == 3 and img.shape[-1] != 1:
-            img = img[..., 0]
-        return img
-
-    buf = np.frombuffer(data, dtype=np.uint8)
-    if num_channels == 1:
-        img = cv2.imdecode(buf, cv2.IMREAD_GRAYSCALE)
-        if img is None:
-            im = Image.open(BytesIO(data))
-            img = np.array(im.convert("L"))
-    else:
-        img = cv2.imdecode(buf, cv2.IMREAD_UNCHANGED)
-        if img is None:
-            im = Image.open(BytesIO(data))
-            img = np.array(im)
-    return img
-
-
 def load_image(self, index):
     # loads 1 image from dataset, returns img, original hw, resized hw
     img = self.imgs[index]
     if img is None:  # not cached
         path = self.img_files[index]
         num_channels = getattr(self, "num_channels", 1)
+        flags = cv2.IMREAD_GRAYSCALE if num_channels == 1 else cv2.IMREAD_UNCHANGED
 
         if getattr(self, "tar_shard_mode", False):
             tar_p, member = split_tar_member_ref(path)
             data = read_tar_member_bytes(tar_p, member)
-            img = _decode_image_bytes(
-                data, num_channels=num_channels, path=str(path)
-            )
+            img = imdecode(data, flags, path_hint=member)
+            if img is None:
+                im = Image.open(BytesIO(data))
+                img = np.array(im.convert("L") if num_channels == 1 else im)
         else:
-            img = _read_image_file(path, num_channels=num_channels)
+            img = imread(path, flags)
 
         assert img is not None, "Image Not Found " + str(path)
 
@@ -1959,7 +1903,7 @@ def extract_boxes(
     for im_file in tqdm(files, total=n):
         if im_file.suffix[1:] in img_formats:
             # image
-            im = cv2.imread(str(im_file))[..., ::-1]  # BGR to RGB
+            im = imread(str(im_file))[..., ::-1]  # BGR to RGB
             h, w = im.shape[:2]
 
             # labels
@@ -1988,7 +1932,7 @@ def extract_boxes(
 
                     b[[0, 2]] = np.clip(b[[0, 2]], 0, w)  # clip boxes outside of image
                     b[[1, 3]] = np.clip(b[[1, 3]], 0, h)
-                    assert cv2.imwrite(str(f), im[b[1] : b[3], b[0] : b[2]]), (
+                    assert imwrite(str(f), im[b[1] : b[3], b[0] : b[2]]), (
                         f"box failure in {f}"
                     )
 
