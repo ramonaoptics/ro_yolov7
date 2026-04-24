@@ -41,3 +41,26 @@ def imwrite(path, img) -> bool:
         except (OSError, ValueError, TypeError, tifffile.TiffFileError):
             return False
     return cv2.imwrite(str(path), img)
+
+
+def tiff_size(path_or_stream) -> tuple[int, int]:
+    """Return (width, height) of a TIFF's logical image without decoding pixels.
+
+    PIL mis-reads non-standard multi-sample TIFFs (e.g. 2- or 5-channel
+    micro-imagery), and tifffile writes such arrays as a multi-page stack when
+    it cannot infer a photometric interpretation from shape alone. Use the
+    series-level shape and axes so the returned size reflects the logical
+    (H, W) regardless of how the file was serialized.
+    """
+    with tifffile.TiffFile(path_or_stream) as tf:
+        series = tf.series[0]
+        shape = series.shape
+        axes = series.axes
+        if "Y" in axes and "X" in axes:
+            h = int(shape[axes.index("Y")])
+            w = int(shape[axes.index("X")])
+        else:
+            page = tf.pages[0]
+            w = int(page.imagewidth)
+            h = int(page.imagelength)
+        return w, h

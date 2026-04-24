@@ -31,7 +31,7 @@ from tqdm import tqdm
 from ro_yolov7.utils.general import xyxy2xywh, xywh2xyxy, xywhn2xyxy, xyn2xy, segment2box, segments2boxes, \
     resample_segments, clean_str
 from ro_yolov7.utils.torch_utils import torch_distributed_zero_first
-from ro_yolov7.utils.image_io import imread, imwrite, imdecode
+from ro_yolov7.utils.image_io import imread, imwrite, imdecode, is_tiff_path, tiff_size
 
 # Parameters
 help_url = "https://github.com/ultralytics/yolov5/wiki/Train-Custom-Data"
@@ -757,20 +757,29 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                 if self.tar_shard_mode:
                     tar_im, img_m = split_tar_member_ref(im_file)
                     img_bytes = read_tar_member_bytes(tar_im, img_m)
-                    im = Image.open(BytesIO(img_bytes))
-                    im.verify()  # PIL verify
-                    im = Image.open(BytesIO(img_bytes))
-                    shape = exif_size(im)  # image size
                     ext = Path(img_m).suffix.lower().lstrip(".")
                     assert ext in img_formats, f"invalid image extension .{ext}"
+                    if is_tiff_path(img_m):
+                        # PIL mis-reads non-standard multi-channel TIFFs (e.g.
+                        # 2 or 5 channel) as a multi-page stack. Read shape via
+                        # tifffile instead.
+                        shape = tiff_size(BytesIO(img_bytes))
+                    else:
+                        im = Image.open(BytesIO(img_bytes))
+                        im.verify()  # PIL verify
+                        im = Image.open(BytesIO(img_bytes))
+                        shape = exif_size(im)  # image size
                 else:
-                    im = Image.open(im_file)
-                    im.verify()  # PIL verify
-                    im = Image.open(im_file)
-                    shape = exif_size(im)  # image size
-                    assert im.format.lower() in img_formats, (
-                        f"invalid image format {im.format}"
-                    )
+                    if is_tiff_path(im_file):
+                        shape = tiff_size(str(im_file))
+                    else:
+                        im = Image.open(im_file)
+                        im.verify()  # PIL verify
+                        im = Image.open(im_file)
+                        shape = exif_size(im)  # image size
+                        assert im.format.lower() in img_formats, (
+                            f"invalid image format {im.format}"
+                        )
                 segments = []  # instance segments
                 assert (shape[0] > 9) & (shape[1] > 9), f"image size {shape} <10 pixels"
 
@@ -1502,9 +1511,13 @@ def letterbox(
     top, bottom = int(round(dh - 0.1)), int(round(dh + 0.1))
     left, right = int(round(dw - 0.1)), int(round(dw + 0.1))
     border_value = _match_border_value(color, img)
-    img = cv2.copyMakeBorder(
-        img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=border_value
-    )  # add border
+    img = _apply_channelwise(
+        lambda arr, bv: cv2.copyMakeBorder(
+            arr, top, bottom, left, right, cv2.BORDER_CONSTANT, value=bv
+        ),
+        img,
+        border_value,
+    )
     return img, ratio, (dw, dh)
 
 
@@ -1534,6 +1547,27 @@ def _match_border_value(color, img):
     while len(result) < channels:
         result.append(fill)
     return tuple(result)
+
+
+def _apply_channelwise(op, img, border_value):
+    # OpenCV geometric routines accept a Scalar with at most 4 elements, so
+    # they can't directly handle images with 5+ channels. Split the channel
+    # axis into chunks of <=4, apply the operation per chunk with the matching
+    # slice of border_value, and concatenate the results back together.
+    channels = 1 if img.ndim == 2 else img.shape[2]
+    if channels <= 4:
+        return op(img, border_value)
+
+    chunks = []
+    for start in range(0, channels, 4):
+        end = min(start + 4, channels)
+        sub = img[..., start:end]
+        sub_bv = tuple(border_value[start:end])
+        out = op(sub, sub_bv)
+        if out.ndim == 2:
+            out = out[:, :, None]
+        chunks.append(out)
+    return np.concatenate(chunks, axis=2)
 
 
 def random_perspective(
@@ -1590,12 +1624,20 @@ def random_perspective(
     if (border[0] != 0) or (border[1] != 0) or (M != np.eye(3)).any():  # image changed
         border_value = _match_border_value((114, 114, 114), img)
         if perspective:
-            img = cv2.warpPerspective(
-                img, M, dsize=(width, height), borderValue=border_value
+            img = _apply_channelwise(
+                lambda arr, bv: cv2.warpPerspective(
+                    arr, M, dsize=(width, height), borderValue=bv
+                ),
+                img,
+                border_value,
             )
         else:  # affine
-            img = cv2.warpAffine(
-                img, M[:2], dsize=(width, height), borderValue=border_value
+            img = _apply_channelwise(
+                lambda arr, bv: cv2.warpAffine(
+                    arr, M[:2], dsize=(width, height), borderValue=bv
+                ),
+                img,
+                border_value,
             )
         if img.ndim == 2:
             img = img[:, :, None]

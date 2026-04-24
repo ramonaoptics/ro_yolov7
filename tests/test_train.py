@@ -2,13 +2,36 @@ import tempfile
 import shutil
 from pathlib import Path
 import numpy as np
+import tifffile
 import yaml
 
-from ro_yolov7.utils.image_io import imwrite
+from ro_yolov7.utils.image_io import imwrite, is_tiff_path
 import subprocess
 import pytest
 
 import ro_yolov7
+
+
+def _write_image(path, img):
+    """Write an image, using explicit TIFF sample layout for >4 channels.
+
+    tifffile can't infer a photometric interpretation for arrays whose
+    trailing axis isn't 1/3/4 samples and falls back to writing a multi-page
+    stack. Steer it toward a single-page multi-sample image so readers see
+    the logical (H, W, C) shape.
+    """
+    if is_tiff_path(path) and img.ndim == 3 and img.shape[-1] not in (1, 3, 4):
+        n = img.shape[-1]
+        if n == 2:
+            kwargs = dict(photometric="minisblack", extrasamples=["unassalpha"])
+        else:
+            kwargs = dict(
+                photometric="rgb",
+                extrasamples=["unassalpha"] * (n - 3),
+            )
+        tifffile.imwrite(str(path), img, **kwargs)
+        return
+    imwrite(str(path), img)
 
 
 def test_train_importable():
@@ -125,7 +148,7 @@ def _make_multichannel_dataset(num_channels, image_format=".tif"):
                 img[..., c] = (c + 1) * 30
 
         img_path = split_dir / f"{split}_image{image_format}"
-        imwrite(str(img_path), img)
+        _write_image(img_path, img)
 
         label_path = split_dir / f"{split}_image.txt"
         with open(label_path, "w") as f:
@@ -155,7 +178,7 @@ def ml_dataset_multi_channel():
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-@pytest.fixture(params=[3, 4])
+@pytest.fixture(params=[2, 3, 4, 5])
 def ml_dataset_multi_channel_tif(request):
     """TIFF-based multi-channel datasets (the real-world training path)."""
     num_channels = request.param

@@ -232,6 +232,7 @@ def test(
     p, r, f1, mp, mr, map50, map, t0, t1 = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
     loss = torch.zeros(3, device=device)
     jdict, stats, ap, ap_class, wandb_images = [], [], [], [], []
+    plot_threads = []
     for batch_i, (img, targets, paths, shapes) in enumerate(tqdm(dataloader, desc=s)):
         img = img.to(device, non_blocking=True)
         img = img.half() if half else img.float()  # uint8 to fp16/32
@@ -338,9 +339,16 @@ def test(
                     boxes = {
                         "predictions": {"box_data": box_data, "class_labels": names}
                     }  # inference-space
+                    # wandb.Image only knows 1/3/4-channel tensors; project
+                    # exotic channel counts (e.g. 2 or 5 for multi-channel
+                    # microscopy) down to a displayable view.
+                    display_img = img[si]
+                    c = display_img.shape[0]
+                    if c not in (1, 3, 4):
+                        display_img = display_img[:3] if c > 3 else display_img[:1]
                     wandb_images.append(
                         wandb_logger.wandb.Image(
-                            img[si], boxes=boxes, caption=path.name
+                            display_img, boxes=boxes, caption=path.name
                         )
                     )
             wandb_logger.log_training_progress(
@@ -416,15 +424,19 @@ def test(
         # Plot images
         if plots and batch_i < 3:
             f = save_dir / f"test_batch{batch_i}_labels.jpg"  # labels
-            Thread(
+            t = Thread(
                 target=plot_images, args=(img, targets, paths, f, names), daemon=True
-            ).start()
+            )
+            t.start()
+            plot_threads.append(t)
             f = save_dir / f"test_batch{batch_i}_pred.jpg"  # predictions
-            Thread(
+            t = Thread(
                 target=plot_images,
                 args=(img, output_to_target(out), paths, f, names),
                 daemon=True,
-            ).start()
+            )
+            t.start()
+            plot_threads.append(t)
 
     # Compute statistics
     stats = [np.concatenate(x, 0) for x in zip(*stats)]  # to numpy
@@ -464,6 +476,10 @@ def test(
     # Plots
     if plots:
         confusion_matrix.plot(save_dir=save_dir, names=list(names.values()))
+        # plot_images runs in daemon threads; make sure they've finished
+        # writing before wandb tries to upload the files.
+        for t in plot_threads:
+            t.join()
         if wandb_logger and wandb_logger.wandb:
             val_batches = [
                 wandb_logger.wandb.Image(str(f), caption=f.name)
