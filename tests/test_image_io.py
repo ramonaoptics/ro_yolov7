@@ -6,6 +6,7 @@ take many minutes per parametrization. Covering the helpers directly here keeps
 regressions in the multi-channel plumbing cheap to diagnose.
 """
 
+import tarfile
 from io import BytesIO
 
 import cv2
@@ -14,7 +15,15 @@ import pytest
 import tifffile
 
 from ro_yolov7.utils.image_io import imread, imwrite, tiff_size
-from ro_yolov7.utils.datasets import _apply_channelwise, _match_border_value
+from ro_yolov7.utils.datasets import (
+    LoadImagesAndLabels,
+    _apply_channelwise,
+    _match_border_value,
+    build_yolo_tar_shard_samples,
+    is_tar_shard_yolo_subset_dir,
+    read_tar_member_bytes,
+    split_tar_member_ref,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -208,3 +217,173 @@ def test_apply_channelwise_preserves_border_value_alignment():
     # The new top row is the border; each channel should carry its own value.
     top_row_per_channel = out[0, 0, :]
     np.testing.assert_array_equal(top_row_per_channel, np.array(bv, dtype=np.uint8))
+
+
+# ---------------------------------------------------------------------------
+# Tar-shard mode + multi-channel TIFFs
+# ---------------------------------------------------------------------------
+
+
+def _encode_multisample_tiff_bytes(img):
+    """Serialize a (H, W, C) array as a single-page multi-sample TIFF."""
+    buf = BytesIO()
+    n = img.shape[-1] if img.ndim == 3 else 1
+    if img.ndim == 3 and n not in (1, 3, 4):
+        if n == 2:
+            kwargs = dict(photometric="minisblack", extrasamples=["unassalpha"])
+        else:
+            kwargs = dict(
+                photometric="rgb",
+                extrasamples=["unassalpha"] * (n - 3),
+            )
+        tifffile.imwrite(buf, img, **kwargs)
+    else:
+        tifffile.imwrite(buf, img)
+    return buf.getvalue()
+
+
+def _make_multichannel_tar_shard(shard_dir, num_samples=2, channels=5, hw=(48, 64)):
+    """Create a ``shard_0.tar`` containing N multi-channel TIFFs + labels.
+
+    Returns the list of (image_name, label_name) pairs written into the tar.
+    Each label is one centered 20%-sized object of class 0.
+    """
+    shard_dir.mkdir(parents=True, exist_ok=True)
+    tar_path = shard_dir / "shard_0.tar"
+    h, w = hw
+    members = []
+    with tarfile.open(tar_path, "w") as tf:
+        for i in range(num_samples):
+            if channels == 1:
+                img = np.full((h, w), 128, dtype=np.uint8)
+            else:
+                img = np.zeros((h, w, channels), dtype=np.uint8)
+                for c in range(channels):
+                    # Distinct per-channel + per-sample fill so any channel
+                    # mix-up would corrupt the read-back values.
+                    img[..., c] = (i + 1) * 7 + c * 11
+
+            img_name = f"img_{i:03d}.tif"
+            label_name = f"img_{i:03d}.txt"
+            members.append((img_name, label_name))
+
+            img_bytes = _encode_multisample_tiff_bytes(img)
+            info = tarfile.TarInfo(name=img_name)
+            info.size = len(img_bytes)
+            tf.addfile(info, BytesIO(img_bytes))
+
+            label_bytes = b"0 0.5 0.5 0.2 0.2\n"
+            info = tarfile.TarInfo(name=label_name)
+            info.size = len(label_bytes)
+            tf.addfile(info, BytesIO(label_bytes))
+
+    return tar_path, members
+
+
+def test_tar_shard_detection_recognizes_tif_only_shard(tmp_path):
+    shard_dir = tmp_path / "subset"
+    _make_multichannel_tar_shard(shard_dir, num_samples=1, channels=5)
+
+    assert is_tar_shard_yolo_subset_dir(shard_dir)
+
+    samples = build_yolo_tar_shard_samples(shard_dir)
+    assert len(samples) == 1
+    tar_path, img_member, _, label_member = samples[0]
+    assert img_member == "img_000.tif"
+    assert label_member == "img_000.txt"
+    assert tar_path.name == "shard_0.tar"
+
+
+@pytest.mark.parametrize("channels", [2, 3, 4, 5])
+def test_tar_shard_tiff_size_reads_through_bytes(tmp_path, channels):
+    """The label-cache path inside ``cache_labels`` reads TIFF size from a
+    ``BytesIO`` of bytes extracted from the tar. Exercise that hop directly
+    so any regression in ``imdecode``/``tiff_size`` for multi-channel TIFFs
+    surfaces here instead of as a multi-minute training subprocess failure.
+    """
+    shard_dir = tmp_path / "subset"
+    h, w = 36, 52
+    _make_multichannel_tar_shard(
+        shard_dir, num_samples=1, channels=channels, hw=(h, w)
+    )
+
+    samples = build_yolo_tar_shard_samples(shard_dir)
+    tar_path, img_member, _, _ = samples[0]
+    raw = read_tar_member_bytes(tar_path, img_member)
+
+    assert tiff_size(BytesIO(raw)) == (w, h)
+
+
+@pytest.mark.parametrize("channels", [2, 3, 4, 5])
+def test_load_images_and_labels_tar_shard_multichannel(tmp_path, channels):
+    """End-to-end (sans training) check that the dataset loader produces
+    correctly-shaped tensors when reading multi-channel TIFFs out of a tar
+    shard. Covers the full path: tar enumeration, label cache (which itself
+    goes through ``tiff_size`` on a ``BytesIO``), ``load_image``'s
+    ``imdecode`` branch with ``IMREAD_UNCHANGED``, the channel-count
+    assertion, ``letterbox`` (incl. ``_apply_channelwise`` for 5+ channels),
+    and the final HWC→CHW transpose.
+    """
+    shard_dir = tmp_path / "subset"
+    h, w = 48, 64
+    num_samples = 2
+    _make_multichannel_tar_shard(
+        shard_dir, num_samples=num_samples, channels=channels, hw=(h, w)
+    )
+
+    dataset = LoadImagesAndLabels(
+        path=str(shard_dir),
+        img_size=128,
+        batch_size=1,
+        augment=False,
+        hyp=None,
+        rect=False,
+        cache_images=False,
+        single_cls=False,
+        stride=32,
+        pad=0.0,
+        prefix="",
+        num_channels=channels,
+    )
+
+    assert dataset.tar_shard_mode is True
+    assert len(dataset) == num_samples
+    # File refs should round-trip through the tar member helper.
+    tar_path, img_member = split_tar_member_ref(dataset.img_files[0])
+    assert tar_path.name == "shard_0.tar"
+    assert img_member.endswith(".tif")
+    # cache_labels recorded the logical (W, H) of the TIFF.
+    np.testing.assert_array_equal(dataset.shapes[0], np.array([w, h]))
+
+    img_tensor, labels_out, path, shapes = dataset[0]
+    assert img_tensor.shape == (channels, 128, 128)
+    assert img_tensor.dtype.is_floating_point is False  # uint8 tensor
+    # One label row prepended with the batch index slot.
+    assert labels_out.shape == (1, 6)
+
+
+def test_load_images_and_labels_tar_shard_channel_mismatch_raises(tmp_path):
+    """If a user passes ``num_channels`` that disagrees with the TIFF on disk,
+    ``load_image`` should assert loudly rather than silently producing wrong
+    tensors.
+    """
+    shard_dir = tmp_path / "subset"
+    _make_multichannel_tar_shard(shard_dir, num_samples=1, channels=5)
+
+    dataset = LoadImagesAndLabels(
+        path=str(shard_dir),
+        img_size=64,
+        batch_size=1,
+        augment=False,
+        hyp=None,
+        rect=False,
+        cache_images=False,
+        single_cls=False,
+        stride=32,
+        pad=0.0,
+        prefix="",
+        num_channels=3,
+    )
+
+    with pytest.raises(AssertionError, match="num_channels"):
+        dataset[0]
