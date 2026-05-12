@@ -31,7 +31,7 @@ from tqdm import tqdm
 from ro_yolov7.utils.general import xyxy2xywh, xywh2xyxy, xywhn2xyxy, xyn2xy, segment2box, segments2boxes, \
     resample_segments, clean_str
 from ro_yolov7.utils.torch_utils import torch_distributed_zero_first
-from ro_yolov7.utils.image_io import imread, imwrite, imdecode, is_tiff_path
+from ro_yolov7.utils.image_io import imread, imwrite, imdecode, is_tiff_path, tiff_size
 
 # Parameters
 help_url = "https://github.com/ultralytics/yolov5/wiki/Train-Custom-Data"
@@ -119,6 +119,7 @@ def create_dataloader(
             pad=pad,
             image_weights=image_weights,
             prefix=prefix,
+            num_channels=getattr(opt, "num_channels", 1),
         )
 
     batch_size = min(batch_size, len(dataset))
@@ -547,13 +548,15 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         stride=32,
         pad=0.0,
         prefix="",
+        num_channels=1,
     ):
         self.img_size = img_size
+        self.num_channels = num_channels
         if augment:
             if albumentations_is_available():
                 self.augmentations = Albumentations()
             else:
-                self.augmentations = PyTorchAugments()
+                self.augmentations = PyTorchAugments(num_channels=num_channels)
         else:
             self.augmentations = None
         self.augment = augment
@@ -754,20 +757,29 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                 if self.tar_shard_mode:
                     tar_im, img_m = split_tar_member_ref(im_file)
                     img_bytes = read_tar_member_bytes(tar_im, img_m)
-                    im = Image.open(BytesIO(img_bytes))
-                    im.verify()  # PIL verify
-                    im = Image.open(BytesIO(img_bytes))
-                    shape = exif_size(im)  # image size
                     ext = Path(img_m).suffix.lower().lstrip(".")
                     assert ext in img_formats, f"invalid image extension .{ext}"
+                    if is_tiff_path(img_m):
+                        # PIL mis-reads non-standard multi-channel TIFFs (e.g.
+                        # 2 or 5 channel) as a multi-page stack. Read shape via
+                        # tifffile instead.
+                        shape = tiff_size(BytesIO(img_bytes))
+                    else:
+                        im = Image.open(BytesIO(img_bytes))
+                        im.verify()  # PIL verify
+                        im = Image.open(BytesIO(img_bytes))
+                        shape = exif_size(im)  # image size
                 else:
-                    im = Image.open(im_file)
-                    im.verify()  # PIL verify
-                    im = Image.open(im_file)
-                    shape = exif_size(im)  # image size
-                    assert im.format.lower() in img_formats, (
-                        f"invalid image format {im.format}"
-                    )
+                    if is_tiff_path(im_file):
+                        shape = tiff_size(str(im_file))
+                    else:
+                        im = Image.open(im_file)
+                        im.verify()  # PIL verify
+                        im = Image.open(im_file)
+                        shape = exif_size(im)  # image size
+                        assert im.format.lower() in img_formats, (
+                            f"invalid image format {im.format}"
+                        )
                 segments = []  # instance segments
                 assert (shape[0] > 9) & (shape[1] > 9), f"image size {shape} <10 pixels"
 
@@ -964,10 +976,10 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         if nL:
             labels_out[:, 1:] = torch.from_numpy(labels)
 
-        # Convert
-        # John - Add a channel dimension for gray images
-        img = img[..., None]
-        img = img[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, to 3x416x416
+        # Convert: ensure (H, W, C) then transpose to (C, H, W) for PyTorch
+        if img.ndim == 2:
+            img = img[:, :, None]
+        img = img.transpose(2, 0, 1)  # HWC -> CHW
         img = np.ascontiguousarray(img)
 
         return torch.from_numpy(img), labels_out, self.img_files[index], shapes
@@ -1033,31 +1045,38 @@ def load_image(self, index):
     img = self.imgs[index]
     if img is None:  # not cached
         path = self.img_files[index]
+        num_channels = getattr(self, "num_channels", 1)
+        flags = cv2.IMREAD_GRAYSCALE if num_channels == 1 else cv2.IMREAD_UNCHANGED
 
-        # John - make it one channel
         if getattr(self, "tar_shard_mode", False):
             tar_p, member = split_tar_member_ref(path)
             data = read_tar_member_bytes(tar_p, member)
-            if is_tiff_path(member):
-                img = imdecode(data, cv2.IMREAD_GRAYSCALE, path_hint=member)
-            else:
-                buf = np.frombuffer(data, dtype=np.uint8)
-                img = cv2.imdecode(buf, cv2.IMREAD_GRAYSCALE)
+            img = imdecode(data, flags, path_hint=member)
             if img is None:
                 im = Image.open(BytesIO(data))
-                img = np.array(im.convert("L"))
-            img = img[:, :, None]
+                img = np.array(im.convert("L") if num_channels == 1 else im)
         else:
-            # img = imread(path)  # BGR
-            img = imread(path, cv2.IMREAD_GRAYSCALE)
-            img = img[:, :, None]
+            img = imread(path, flags)
 
         assert img is not None, "Image Not Found " + str(path)
+
+        # Normalize to (H, W, C)
+        if img.ndim == 2:
+            img = img[:, :, None]
+
+        assert img.shape[2] == num_channels, (
+            f"Image {path} has {img.shape[2]} channels but "
+            f"num_channels={num_channels} was requested."
+        )
+
         h0, w0 = img.shape[:2]  # orig hw
         r = self.img_size / max(h0, w0)  # resize image to img_size
         if r != 1:  # always resize down, only resize up if training with augmentation
             interp = cv2.INTER_AREA if r < 1 and not self.augment else cv2.INTER_LINEAR
             img = cv2.resize(img, (int(w0 * r), int(h0 * r)), interpolation=interp)
+            # cv2.resize drops a trailing singleton channel; restore to (H, W, C)
+            if img.ndim == 2:
+                img = img[:, :, None]
         return img, (h0, w0), img.shape[:2]  # img, hw_original, hw_resized
     else:
         return (
@@ -1486,12 +1505,69 @@ def letterbox(
 
     if shape[::-1] != new_unpad:  # resize
         img = cv2.resize(img, new_unpad, interpolation=cv2.INTER_LINEAR)
+        # cv2.resize drops a trailing singleton channel; restore to (H, W, C)
+        if img.ndim == 2:
+            img = img[:, :, None]
     top, bottom = int(round(dh - 0.1)), int(round(dh + 0.1))
     left, right = int(round(dw - 0.1)), int(round(dw + 0.1))
-    img = cv2.copyMakeBorder(
-        img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color
-    )  # add border
+    border_value = _match_border_value(color, img)
+    img = _apply_channelwise(
+        lambda arr, bv: cv2.copyMakeBorder(
+            arr, top, bottom, left, right, cv2.BORDER_CONSTANT, value=bv
+        ),
+        img,
+        border_value,
+    )
     return img, ratio, (dw, dh)
+
+
+def _match_border_value(color, img):
+    # OpenCV border routines expect the fill value to have exactly as many
+    # elements as the image has channels. The default (114, 114, 114) works for
+    # 1- and 3-channel images but needs to be extended for multi-channel (e.g.
+    # 4+) microscopy data.
+    if img.ndim == 2:
+        channels = 1
+    else:
+        channels = img.shape[2]
+
+    if isinstance(color, (int, float)):
+        base = int(color)
+        return tuple([base] * channels)
+
+    color_seq = list(color)
+    if len(color_seq) == channels:
+        return tuple(color_seq)
+    if len(color_seq) == 1:
+        return tuple(color_seq * channels)
+    # Tile the provided values to reach the required channel count, padding
+    # with the first value if we need extra components.
+    fill = color_seq[0] if color_seq else 0
+    result = list(color_seq[:channels])
+    while len(result) < channels:
+        result.append(fill)
+    return tuple(result)
+
+
+def _apply_channelwise(op, img, border_value):
+    # OpenCV geometric routines accept a Scalar with at most 4 elements, so
+    # they can't directly handle images with 5+ channels. Split the channel
+    # axis into chunks of <=4, apply the operation per chunk with the matching
+    # slice of border_value, and concatenate the results back together.
+    channels = 1 if img.ndim == 2 else img.shape[2]
+    if channels <= 4:
+        return op(img, border_value)
+
+    chunks = []
+    for start in range(0, channels, 4):
+        end = min(start + 4, channels)
+        sub = img[..., start:end]
+        sub_bv = tuple(border_value[start:end])
+        out = op(sub, sub_bv)
+        if out.ndim == 2:
+            out = out[:, :, None]
+        chunks.append(out)
+    return np.concatenate(chunks, axis=2)
 
 
 def random_perspective(
@@ -1546,14 +1622,25 @@ def random_perspective(
     # Combined rotation matrix
     M = T @ S @ R @ P @ C  # order of operations (right to left) is IMPORTANT
     if (border[0] != 0) or (border[1] != 0) or (M != np.eye(3)).any():  # image changed
+        border_value = _match_border_value((114, 114, 114), img)
         if perspective:
-            img = cv2.warpPerspective(
-                img, M, dsize=(width, height), borderValue=(114, 114, 114)
+            img = _apply_channelwise(
+                lambda arr, bv: cv2.warpPerspective(
+                    arr, M, dsize=(width, height), borderValue=bv
+                ),
+                img,
+                border_value,
             )
         else:  # affine
-            img = cv2.warpAffine(
-                img, M[:2], dsize=(width, height), borderValue=(114, 114, 114)
+            img = _apply_channelwise(
+                lambda arr, bv: cv2.warpAffine(
+                    arr, M[:2], dsize=(width, height), borderValue=bv
+                ),
+                img,
+                border_value,
             )
+        if img.ndim == 2:
+            img = img[:, :, None]
 
     # Visualize
     # import matplotlib.pyplot as plt
@@ -1784,28 +1871,49 @@ class Albumentations:
 
 class PyTorchAugments:
     # Ramona PyTorch Augmentations class for image color/quality augmentations
-    def __init__(self):
-        self.transform = v2.Compose([
+    def __init__(self, num_channels=1):
+        self.num_channels = num_channels
+        transforms = [
             # John and Caleb agreed CLAHE is not helpful, it is a deterministic
             # process and not useful for augmentation
             v2.RandomApply([v2.GaussianBlur(kernel_size=3, sigma=(0.1, 2.0))], p=0.01),
-            v2.RandomApply([v2.ColorJitter(brightness=0.2, contrast=0.2)], p=0.01),
-            v2.RandomApply([
-                v2.Lambda(
-                    lambda x: x if isinstance(x, TvMask)
-                    else v2.functional.adjust_gamma(
-                        x, float(torch.empty(()).uniform_(0.7, 1.5))
+        ]
+        # torchvision color transforms only support 1 or 3 channel images, so
+        # skip them for arbitrary multi-channel imagery (e.g. 4+ channel inputs).
+        if num_channels in (1, 3):
+            transforms.extend([
+                v2.RandomApply(
+                    [v2.ColorJitter(brightness=0.2, contrast=0.2)], p=0.01
+                ),
+                v2.RandomApply([
+                    v2.Lambda(
+                        lambda x: x if isinstance(x, TvMask)
+                        else v2.functional.adjust_gamma(
+                            x, float(torch.empty(()).uniform_(0.7, 1.5))
+                        )
                     )
-                )
-            ], p=0.01)
+                ], p=0.01),
+            ])
             # The albumentation augment for image compression was not considered useful
             # as the data we work with is lossless anyways
-        ])
+        self.transform = v2.Compose(transforms)
 
     def __call__(self, image, labels):
-        image = self.transform(TvImage(image))
-        image = image[0].numpy()
-        return image, labels
+        # torchvision v2 transforms expect (C, H, W) tensors. The caller passes
+        # the image as (H, W, C) numpy, so we transpose before/after the transform.
+        if image.ndim == 2:
+            image_hwc = image[:, :, None]
+        else:
+            image_hwc = image
+        tensor = torch.from_numpy(
+            np.ascontiguousarray(image_hwc.transpose(2, 0, 1))
+        )  # HWC -> CHW
+        tensor = self.transform(TvImage(tensor))
+        # CHW tensor -> HWC numpy
+        result = tensor.numpy().transpose(1, 2, 0)
+        if image.ndim == 2:
+            result = result[:, :, 0]
+        return result, labels
 
 
 def create_folder(path="./new"):

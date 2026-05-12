@@ -153,7 +153,7 @@ def plot_images(
 
     tl = 3  # line thickness
     tf = max(tl - 1, 1)  # font thickness
-    bs, _, h, w = images.shape  # batch size, _, height, width
+    bs, ch, h, w = images.shape  # batch size, channels, height, width
     bs = min(bs, max_subplots)  # limit plot images
     ns = np.ceil(bs**0.5)  # number of subplots (square)
 
@@ -163,8 +163,13 @@ def plot_images(
         h = math.ceil(scale_factor * h)
         w = math.ceil(scale_factor * w)
 
+    # Only keep up to 3 channels when displaying (mosaic image must be 1 or 3-channel)
+    mosaic_ch = 1 if ch == 1 else 3
+
     colors = color_list()  # list of colors
-    mosaic = np.full((int(ns * h), int(ns * w), 1), 255, dtype=np.uint8)  # init
+    mosaic = np.full(
+        (int(ns * h), int(ns * w), mosaic_ch), 255, dtype=np.uint8
+    )  # init
     for i, img in enumerate(images):
         if i == max_subplots:  # if last batch has fewer images than we expect
             break
@@ -178,6 +183,13 @@ def plot_images(
 
         if len(img.shape) == 2:
             img = np.reshape(img, img.shape + (1,))
+
+        # Clip to mosaic channel count (drop extra channels for visualization)
+        if img.shape[2] > mosaic_ch:
+            img = img[:, :, :mosaic_ch]
+        elif img.shape[2] < mosaic_ch:
+            # Tile the single channel to make it viewable as RGB
+            img = np.repeat(img[:, :, :1], mosaic_ch, axis=2)
 
         mosaic[block_y : block_y + h, block_x : block_x + w, :] = img
         if len(targets) > 0:
