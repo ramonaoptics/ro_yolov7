@@ -3,11 +3,12 @@ import logging
 import math
 import os
 import random
+import signal
 import time
 import warnings
 from copy import deepcopy
 from pathlib import Path
-from threading import Thread
+from threading import Event, Thread
 import gc
 
 import numpy as np
@@ -38,8 +39,37 @@ from ro_yolov7.utils.wandb_logging.wandb_utils import WandbLogger, check_wandb_r
 
 logger = logging.getLogger(__name__)
 
+# Cooperative cancellation. The training loop runs in its own process (launched
+# by python-owl's ro_yolov7_train subprocess), so the GUI cancels it by sending
+# SIGTERM (process.terminate()). A hard kill would corrupt the half-written
+# best.pt; instead we trap SIGTERM/SIGINT, set this Event, and break out of the
+# batch/epoch loop at the next boundary so the device and any open files are
+# released cleanly. Callers that already terminated a fully-saved model simply
+# discard it. The marker line below is grepped by python-owl to distinguish a
+# cancel from a crash.
+_CANCEL_REQUESTED = Event()
+CANCELLED_MARKER = "ro_yolov7: training cancelled by signal"
+
+
+def _request_cancel(signum, frame):
+    _CANCEL_REQUESTED.set()
+
+
+def _install_cancel_handlers():
+    # Only install in the main thread of the main interpreter; signal.signal
+    # raises elsewhere. DDP worker ranks keep the default disposition.
+    try:
+        signal.signal(signal.SIGTERM, _request_cancel)
+        signal.signal(signal.SIGINT, _request_cancel)
+    except (ValueError, OSError):
+        # Not in the main thread (e.g. called from a test harness); cooperative
+        # cancellation is then unavailable but training still runs normally.
+        pass
+
 
 def train(hyp, opt, device, tb_writer=None):
+    _CANCEL_REQUESTED.clear()
+    _install_cancel_handlers()
     logger.info(
         colorstr("hyperparameters: ") + ", ".join(f"{k}={v}" for k, v in hyp.items())
     )
@@ -72,7 +102,10 @@ def train(hyp, opt, device, tb_writer=None):
 
     # Configure
     plots = not opt.evolve  # create plots
-    cuda = device.type != "cpu"
+    # Strictly CUDA: gates amp.autocast, GradScaler, and torch.cuda.* calls,
+    # none of which apply to MPS or CPU. MPS runs through the disabled-autocast /
+    # no-op-scaler paths just like CPU does.
+    cuda = device.type == "cuda"
     init_seeds(2 + rank)
     with open(opt.data) as f:
         data_dict = yaml.load(f, Loader=yaml.SafeLoader)  # data dict
@@ -391,7 +424,10 @@ def train(hyp, opt, device, tb_writer=None):
     model.hyp = hyp  # attach hyperparameters to model
     model.gr = 1.0  # iou loss ratio (obj_loss = 1.0 or iou)
     model.class_weights = (
-        labels_to_class_weights(dataset.labels, nc).to(device) * nc
+        # .float() before .to(device): labels_to_class_weights returns float64,
+        # which MPS cannot hold (no float64 support); float32 is fine on all
+        # backends.
+        labels_to_class_weights(dataset.labels, nc).float().to(device) * nc
     )  # attach class weights
     model.names = names
 
@@ -425,7 +461,8 @@ def train(hyp, opt, device, tb_writer=None):
         # this environment variable flag is set when many labels are found in
         # the dataset loading step
         if bool(os.getenv("YOLO_MANY_LABELS", "false")):
-            torch.cuda.empty_cache()
+            if cuda:
+                torch.cuda.empty_cache()
             gc.collect()
 
         # print the epoch to the screen here and parse this for progressbar
@@ -478,6 +515,11 @@ def train(hyp, opt, device, tb_writer=None):
         ) in (
             pbar
         ):  # batch -------------------------------------------------------------
+            # Cancellation is checked per batch so a cancel during a long epoch
+            # responds quickly instead of waiting for the (potentially slow)
+            # end-of-epoch validation pass.
+            if _CANCEL_REQUESTED.is_set():
+                break
             ni = i + nb * epoch  # number integrated batches (since train start)
 
             imgs = (
@@ -588,6 +630,15 @@ def train(hyp, opt, device, tb_writer=None):
                     )
 
             # end batch ------------------------------------------------------------------------------------------------
+
+        # If cancellation fired mid-epoch, skip the (slow) end-of-epoch
+        # validation + checkpoint save entirely and stop now. A best.pt from a
+        # previously completed epoch, if any, is left intact; python-owl
+        # discards the result on cancel regardless.
+        if _CANCEL_REQUESTED.is_set():
+            print(CANCELLED_MARKER, flush=True)
+            logger.info(CANCELLED_MARKER)
+            break
         # end epoch ----------------------------------------------------------------------------------------------------
 
         # Scheduler
@@ -699,6 +750,14 @@ def train(hyp, opt, device, tb_writer=None):
                         )
                 del ckpt
 
+        # Cancellation requested (SIGTERM/SIGINT from the GUI): stop after the
+        # current epoch's model has been saved so a usable best.pt survives, and
+        # print a marker python-owl can grep to tell cancel apart from a crash.
+        if _CANCEL_REQUESTED.is_set():
+            print(CANCELLED_MARKER, flush=True)
+            logger.info(CANCELLED_MARKER)
+            break
+
         # end epoch ----------------------------------------------------------------------------------------------------
     # end training
     if rank in [-1, 0]:
@@ -762,11 +821,13 @@ def train(hyp, opt, device, tb_writer=None):
         dist.destroy_process_group()
 
     # Comprehensive GPU memory cleanup after training
-    torch.cuda.empty_cache()
+    if cuda:
+        torch.cuda.empty_cache()
     # Run garbage collection to free up Python objects
     gc.collect()
     # Clear CUDA cache again for thorough cleanup
-    torch.cuda.empty_cache()
+    if cuda:
+        torch.cuda.empty_cache()
     return results
 
 

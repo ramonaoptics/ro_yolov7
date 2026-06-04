@@ -163,8 +163,8 @@ def test(
 
     # Half
     half = (
-        device.type != "cpu" and half_precision
-    )  # half precision only supported on CUDA
+        device.type == "cuda" and half_precision
+    )  # half precision only supported on CUDA (not MPS/CPU)
     if half:
         model.half()
 

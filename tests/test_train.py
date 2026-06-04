@@ -1,8 +1,11 @@
+import os
 import tempfile
 import shutil
+import time
 from pathlib import Path
 import numpy as np
 import tifffile
+import torch
 import yaml
 
 from ro_yolov7.utils.image_io import imwrite, is_tiff_path
@@ -10,6 +13,11 @@ import subprocess
 import pytest
 
 import ro_yolov7
+
+_MPS_AVAILABLE = (
+    getattr(torch.backends, "mps", None) is not None
+    and torch.backends.mps.is_available()
+)
 
 
 def _write_image(path, img):
@@ -121,6 +129,85 @@ def test_training_from_subprocess(ml_dataset):
 
     best_pt = weights_dir / 'best.pt'
     assert best_pt.exists(), "Best model weights were not saved correctly"
+
+
+def _build_train_cmd(dataset_dir, device, epochs, *, name="subprocess_test"):
+    data_yaml = dataset_dir / "data.yaml"
+    cfg_path = Path(ro_yolov7.__file__).parent / "cfg" / "training" / "yolov7-tiny.yaml"
+    hyp_path = Path(ro_yolov7.__file__).parent / "data" / "hyp.scratch.tiny.yaml"
+    train_script = Path(ro_yolov7.__file__).parent / "train.py"
+    default_weights_path = Path(ro_yolov7.__file__).parent / "yolov7-tiny.pt"
+    return [
+        "python", str(train_script),
+        "--weights", str(default_weights_path),
+        "--cfg", str(cfg_path),
+        "--data", str(data_yaml),
+        "--hyp", str(hyp_path),
+        "--epochs", str(epochs),
+        "--batch-size", "1",
+        "--img-size", "640", "640",
+        "--device", device,
+        "--workers", "4",
+        "--name", name,
+        "--project", str(dataset_dir / "runs"),
+    ]
+
+
+@pytest.mark.skipif(not _MPS_AVAILABLE, reason="requires an Apple Silicon MPS device")
+def test_training_from_subprocess_mps(ml_dataset):
+    # MPS (Apple Silicon) training path: validates the float64->float32 class
+    # weight cast and the MPS-fallback for torchvision::nms during validation.
+    dataset_dir = ml_dataset
+    cmd = _build_train_cmd(dataset_dir, device="mps", epochs=1)
+    env = dict(os.environ)
+    env["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=600, env=env)
+
+    assert result.returncode == 0, (
+        f"MPS training failed with return code {result.returncode}\n"
+        f"Stderr: {result.stderr}"
+    )
+    best_pt = dataset_dir / "runs" / "subprocess_test" / "weights" / "best.pt"
+    assert best_pt.exists(), "Best model weights were not saved on MPS"
+
+
+def test_training_subprocess_cancels_on_sigterm(ml_dataset):
+    # SIGTERM (sent by python-owl's process.terminate() when the user clicks the
+    # cancel button) must stop training cooperatively at the next batch boundary
+    # and print CANCELLED_MARKER rather than hard-crashing. Run many epochs and
+    # terminate as soon as training begins so we never wait for natural exit.
+    from ro_yolov7.train import CANCELLED_MARKER
+
+    dataset_dir = ml_dataset
+    device = "mps" if _MPS_AVAILABLE else "cpu"
+    cmd = _build_train_cmd(dataset_dir, device=device, epochs=100, name="cancel_test")
+    env = dict(os.environ)
+    env["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+
+    process = subprocess.Popen(
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        universal_newlines=True, bufsize=1, env=env,
+    )
+    marker_seen = False
+    started = time.time()
+    output_lines = []
+    for line in iter(process.stdout.readline, ""):
+        output_lines.append(line)
+        if "Epoch:" in line:
+            # Training has reached the loop; request cancellation.
+            process.terminate()
+        if CANCELLED_MARKER in line:
+            marker_seen = True
+        if time.time() - started > 300:
+            process.kill()
+            break
+    process.wait(timeout=60)
+
+    assert marker_seen, (
+        "Training did not print the cancellation marker after SIGTERM\n"
+        + "".join(output_lines[-30:])
+    )
 
 
 def _make_multichannel_dataset(num_channels, image_format=".tif"):
