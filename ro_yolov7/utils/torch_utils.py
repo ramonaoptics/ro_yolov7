@@ -64,9 +64,20 @@ def git_describe(path=Path(__file__).parent):  # path must be a directory
 
 
 def select_device(device="", batch_size=None):
-    # device = 'cpu' or '0' or '0,1,2,3'
+    # device = 'cpu' or 'mps' or '0' or '0,1,2,3'
     s = f"YOLOR 🚀 {git_describe() or date_modified()} torch {torch.__version__} "  # string
-    cpu = device.lower() == "cpu"
+    device = device.lower()
+    cpu = device == "cpu"
+    # Apple Silicon GPU (Metal Performance Shaders). Useful for local
+    # development/testing on Macs where no CUDA device exists.
+    mps = device == "mps"
+    if mps:
+        assert (
+            getattr(torch.backends, "mps", None) is not None
+            and torch.backends.mps.is_available()
+        ), "MPS unavailable; requires an Apple Silicon Mac with a recent PyTorch build"
+        logger.info(s + "MPS\n")
+        return torch.device("mps")
     if cpu:
         os.environ["CUDA_VISIBLE_DEVICES"] = (
             "-1"  # force torch.cuda.is_available() = False
