@@ -37,6 +37,19 @@ def torch_distributed_zero_first(local_rank: int):
         torch.distributed.barrier()
 
 
+def set_cudnn_benchmark(enabled=True):
+    # Toggle cuDNN's benchmark autotuner. With benchmark on, cuDNN times several
+    # convolution engines per input shape and caches the fastest; on some GPUs
+    # and cuDNN versions one of those engines is broken (e.g. an illegal memory
+    # access during conv on Blackwell / sm_120). Turning benchmark off falls back
+    # to cuDNN's heuristic engine selection, which avoids the bad engine while
+    # keeping the cuDNN backend itself enabled (and fast). Mirrors the
+    # benchmark/deterministic pairing used by ``init_torch_seeds``.
+    cudnn.benchmark = enabled
+    cudnn.deterministic = not enabled
+    logger.info("cuDNN benchmark %s", "enabled" if enabled else "disabled")
+
+
 def init_torch_seeds(seed=0):
     # Speed-reproducibility tradeoff https://pytorch.org/docs/stable/notes/randomness.html
     torch.manual_seed(seed)

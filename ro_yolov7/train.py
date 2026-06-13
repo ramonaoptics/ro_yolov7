@@ -34,7 +34,7 @@ from ro_yolov7.utils.general import labels_to_class_weights, increment_path, lab
     print_mutation, one_cycle, colorstr
 from ro_yolov7.utils.loss import ComputeLoss, ComputeLossOTA
 from ro_yolov7.utils.plots import plot_images, plot_results, plot_evolution
-from ro_yolov7.utils.torch_utils import ModelEMA, select_device, intersect_dicts, torch_distributed_zero_first, is_parallel
+from ro_yolov7.utils.torch_utils import ModelEMA, select_device, intersect_dicts, torch_distributed_zero_first, is_parallel, set_cudnn_benchmark
 from ro_yolov7.utils.wandb_logging.wandb_utils import WandbLogger, check_wandb_resume
 
 logger = logging.getLogger(__name__)
@@ -107,6 +107,11 @@ def train(hyp, opt, device, tb_writer=None):
     # no-op-scaler paths just like CPU does.
     cuda = device.type == "cuda"
     init_seeds(2 + rank)
+    # init_seeds() turns the cuDNN benchmark autotuner on; honor an explicit
+    # override here (after it runs) so callers can force it off to dodge a
+    # broken conv engine without disabling the whole cuDNN backend.
+    if getattr(opt, "cudnn_benchmark", None) is not None:
+        set_cudnn_benchmark(opt.cudnn_benchmark)
     with open(opt.data) as f:
         data_dict = yaml.load(f, Loader=yaml.SafeLoader)  # data dict
     is_coco = opt.data.endswith("coco.yaml")
@@ -1101,6 +1106,15 @@ def main():
     )
     parser.add_argument(
         "--device", default="", help="cuda device, i.e. 0 or 0,1,2,3 or cpu"
+    )
+    parser.add_argument(
+        "--cudnn-benchmark",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="force cuDNN's benchmark autotuner on/off (default: leave the "
+             "trainer default on). Use --no-cudnn-benchmark to fall back to "
+             "cuDNN heuristic engine selection and work around a broken conv "
+             "engine while keeping cuDNN enabled.",
     )
     parser.add_argument(
         "--multi-scale", action="store_true", help="vary img-size +/- 50%%"
