@@ -9,8 +9,7 @@ requirements = [
     "numpy>=2.0",
     "onnx",
     "onnxscript",
-    "opencv-python",
-    "Pillow",
+    "Pillow>=10.1",
     "PyYAML",
     "requests",
     "scipy",
@@ -39,6 +38,7 @@ setup(
     },
     include_package_data=True,
     install_requires=requirements,
+    extras_require={"video": ["imageio", "imageio-ffmpeg"]},
     python_requires=">=3.10",
     entry_points={
         "console_scripts": [

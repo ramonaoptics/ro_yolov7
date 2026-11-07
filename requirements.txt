@@ -2,8 +2,7 @@
 
 matplotlib
 numpy >=2.0
-opencv-python
-Pillow
+Pillow>=10.1
 PyYAML
 requests
 scipy
@@ -11,6 +10,10 @@ tifffile
 torch
 torchvision
 tqdm
+
+# Video ---------------------------------------
+# imageio  # reading and writing video
+# imageio-ffmpeg
 
 # Logging -------------------------------------
 # tensorboard>=2.4.1

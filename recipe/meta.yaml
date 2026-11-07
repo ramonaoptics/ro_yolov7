@@ -24,8 +24,7 @@ requirements:
     - python >={{ python_min }}
     - matplotlib-base
     - numpy >=2.0
-    - opencv
-    - pillow
+    - pillow >=10.1
     - pyyaml
     - requests
     - scipy

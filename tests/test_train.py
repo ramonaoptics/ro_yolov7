@@ -229,7 +229,7 @@ def _make_multichannel_dataset(num_channels, image_format=".tif"):
             img = np.zeros((640, 640, num_channels), dtype=np.uint8)
             # Populate each channel with a distinct non-trivial value so that
             # channel-order regressions (e.g. BGR swaps or alpha premultiplication
-            # introduced by cv2 when loading TIFFs) will cause the pixel values
+            # introduced when loading TIFFs) will cause the pixel values
             # seen during training to differ from what was written to disk.
             for c in range(num_channels):
                 img[..., c] = (c + 1) * 30
