@@ -127,7 +127,7 @@ Concurrency: 16, throughput: 335.587 infer/sec, latency 47616 usec
 Example client can be found in client.py. It can run dummy input, images and videos.
 
 ```bash
-pip3 install tritonclient[all] opencv-python
+pip3 install tritonclient[all] matplotlib pillow tifffile imageio imageio-ffmpeg
 python3 client.py image data/dog.jpg
 ```
 

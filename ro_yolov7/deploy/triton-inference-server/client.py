@@ -3,17 +3,17 @@
 import argparse
 import numpy as np
 import sys
-import cv2
 from pathlib import Path
 
 try:
-    from ro_yolov7.utils.image_io import imread, imwrite
+    from ro_yolov7.utils.image_io import VideoReader, VideoWriter, imread, imwrite
 except ImportError:
     _r = Path(__file__).resolve().parent.parent.parent.parent
     if str(_r) not in sys.path:
         sys.path.insert(0, str(_r))
-    from ro_yolov7.utils.image_io import imread, imwrite
+    from ro_yolov7.utils.image_io import VideoReader, VideoWriter, imread, imwrite
 
+import matplotlib.pyplot as plt
 import tritonclient.grpc as grpcclient
 from tritonclient.utils import InferenceServerException
 
@@ -257,9 +257,10 @@ if __name__ == '__main__':
             imwrite(FLAGS.out, input_image)
             print(f"Saved result to {FLAGS.out}")
         else:
-            cv2.imshow('image', input_image)
-            cv2.waitKey(0)
-            cv2.destroyAllWindows()
+            plt.figure('image')
+            plt.imshow(input_image[..., ::-1])
+            plt.axis('off')
+            plt.show()
 
     # VIDEO MODE
     if FLAGS.mode == 'video':
@@ -277,7 +278,7 @@ if __name__ == '__main__':
         outputs.append(grpcclient.InferRequestedOutput(OUTPUT_NAMES[3]))
 
         print("Opening input video stream...")
-        cap = cv2.VideoCapture(FLAGS.input)
+        cap = VideoReader(FLAGS.input)
         if not cap.isOpened():
             print(f"FAILED: cannot open video {FLAGS.input}")
             sys.exit(1)
@@ -293,8 +294,7 @@ if __name__ == '__main__':
 
             if counter == 0 and FLAGS.out:
                 print("Opening output video stream...")
-                fourcc = cv2.VideoWriter_fourcc('M', 'P', '4', 'V')
-                out = cv2.VideoWriter(FLAGS.out, fourcc, FLAGS.fps, (frame.shape[1], frame.shape[0]))
+                out = VideoWriter(FLAGS.out, FLAGS.fps)
 
             input_image_buffer = preprocess(frame, [FLAGS.width, FLAGS.height])
             input_image_buffer = np.expand_dims(input_image_buffer, axis=0)
@@ -324,8 +324,13 @@ if __name__ == '__main__':
             if FLAGS.out:
                 out.write(frame)
             else:
-                cv2.imshow('image', frame)
-                if cv2.waitKey(1) == ord('q'):
+                if counter == 1:
+                    shown = plt.imshow(frame[..., ::-1])
+                    plt.axis('off')
+                else:
+                    shown.set_data(frame[..., ::-1])
+                plt.pause(0.001)
+                if not plt.get_fignums():  # window closed
                     break
 
         if FLAGS.model_info:
@@ -340,4 +345,4 @@ if __name__ == '__main__':
         if FLAGS.out:
             out.release()
         else:
-            cv2.destroyAllWindows()
+            plt.close('all')
