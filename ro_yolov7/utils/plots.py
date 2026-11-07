@@ -7,7 +7,6 @@ import random
 from copy import copy
 from pathlib import Path
 
-import cv2
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
@@ -17,6 +16,14 @@ from PIL import Image, ImageDraw, ImageFont
 from scipy.signal import butter, filtfilt
 
 from ro_yolov7.utils.general import xywh2xyxy, xyxy2xywh
+from ro_yolov7.utils.image_ops import (
+    draw_circle,
+    draw_line,
+    draw_rectangle,
+    put_text,
+    resize,
+    text_size,
+)
 from ro_yolov7.utils.metrics import fitness
 
 # Settings
@@ -65,22 +72,25 @@ def plot_one_box(x, img, color=None, label=None, line_thickness=3):
     )  # line/font thickness
     color = color or [random.randint(0, 255) for _ in range(3)]
     c1, c2 = (int(x[0]), int(x[1])), (int(x[2]), int(x[3]))
-    cv2.rectangle(img, c1, c2, color, thickness=tl, lineType=cv2.LINE_AA)
+    draw_rectangle(img, c1, c2, color, thickness=tl)
     if label:
-        tf = max(tl - 1, 1)  # font thickness
-        t_size = cv2.getTextSize(label, 0, fontScale=tl / 3, thickness=tf)[0]
+        t_size = text_size(label, font_scale=tl / 3)
         c2 = c1[0] + t_size[0], c1[1] - t_size[1] - 3
-        cv2.rectangle(img, c1, c2, color, -1, cv2.LINE_AA)  # filled
-        cv2.putText(
-            img,
-            label,
-            (c1[0], c1[1] - 2),
-            0,
-            tl / 3,
-            [225, 255, 255],
-            thickness=tf,
-            lineType=cv2.LINE_AA,
-        )
+        draw_rectangle(img, c1, c2, color, thickness=-1)  # filled
+        put_text(img, label, (c1[0], c1[1] - 2), font_scale=tl / 3, color=[225, 255, 255])
+
+
+def show_image(title, img):
+    # Show a BGR image in a window named title, replacing what it showed before
+    fig = plt.figure(title)
+    rgb = img[..., ::-1] if img.ndim == 3 and img.shape[2] == 3 else img
+    if fig.axes and fig.axes[0].images:
+        fig.axes[0].images[0].set_data(rgb)
+    else:
+        ax = fig.add_axes((0, 0, 1, 1))
+        ax.axis("off")
+        ax.imshow(rgb, cmap="gray")
+    plt.pause(0.001)
 
 
 def plot_one_box_PIL(box, img, color=None, label=None, line_thickness=None):
@@ -152,7 +162,6 @@ def plot_images(
         images *= 255
 
     tl = 3  # line thickness
-    tf = max(tl - 1, 1)  # font thickness
     bs, ch, h, w = images.shape  # batch size, channels, height, width
     bs = min(bs, max_subplots)  # limit plot images
     ns = np.ceil(bs**0.5)  # number of subplots (square)
@@ -179,7 +188,7 @@ def plot_images(
 
         img = img.transpose(1, 2, 0)
         if scale_factor < 1:
-            img = cv2.resize(img, (w, h))
+            img = resize(img, (w, h))
 
         if len(img.shape) == 2:
             img = np.reshape(img, img.shape + (1,))
@@ -222,33 +231,17 @@ def plot_images(
         # Draw image filename labels
         if paths:
             label = Path(paths[i]).name[:40]  # trim to 40 char
-            t_size = cv2.getTextSize(label, 0, fontScale=tl / 3, thickness=tf)[0]
-            cv2.putText(
-                mosaic,
-                label,
-                (block_x + 5, block_y + t_size[1] + 5),
-                0,
-                tl / 3,
-                [220, 220, 220],
-                thickness=tf,
-                lineType=cv2.LINE_AA,
-            )
+            t_size = text_size(label, font_scale=tl / 3)
+            put_text(mosaic, label, (block_x + 5, block_y + t_size[1] + 5), font_scale=tl / 3, color=[220, 220, 220])
 
         # Image border
-        cv2.rectangle(
-            mosaic,
-            (block_x, block_y),
-            (block_x + w, block_y + h),
-            (255, 255, 255),
-            thickness=3,
-        )
+        draw_rectangle(mosaic, (block_x, block_y), (block_x + w, block_y + h), (255, 255, 255), thickness=3)
 
     if fname:
         r = min(1280.0 / max(h, w) / ns, 1.0)  # ratio to limit image size
-        mosaic = cv2.resize(
-            mosaic, (int(ns * w * r), int(ns * h * r)), interpolation=cv2.INTER_AREA
-        )
-        # cv2.imwrite(fname, cv2.cvtColor(mosaic, cv2.COLOR_BGR2RGB))  # cv2 save
+        mosaic = resize(mosaic, (int(ns * w * r), int(ns * h * r)), interpolation="area")
+        if mosaic.shape[2] == 1:
+            mosaic = mosaic[:, :, 0]
         Image.fromarray(mosaic).save(fname)  # PIL save
     return mosaic
 
@@ -706,9 +699,7 @@ def plot_skeleton_kpts(im, kpts, steps, orig_shape=None):
                 conf = kpts[steps * kid + 2]
                 if conf < 0.5:
                     continue
-            cv2.circle(
-                im, (int(x_coord), int(y_coord)), radius, (int(r), int(g), int(b)), -1
-            )
+            draw_circle(im, (int(x_coord), int(y_coord)), radius, (int(r), int(g), int(b)), -1)
 
     for sk_id, sk in enumerate(skeleton):
         r, g, b = pose_limb_color[sk_id]
@@ -723,4 +714,4 @@ def plot_skeleton_kpts(im, kpts, steps, orig_shape=None):
             continue
         if pos2[0] % 640 == 0 or pos2[1] % 640 == 0 or pos2[0] < 0 or pos2[1] < 0:
             continue
-        cv2.line(im, pos1, pos2, (int(r), int(g), int(b)), thickness=2)
+        draw_line(im, pos1, pos2, (int(r), int(g), int(b)), thickness=2)
