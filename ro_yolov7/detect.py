@@ -2,7 +2,6 @@ import argparse
 import time
 from pathlib import Path
 
-import cv2
 import torch
 import torch.backends.cudnn as cudnn
 from numpy import random
@@ -11,9 +10,9 @@ from ro_yolov7.models.experimental import attempt_load
 from ro_yolov7.utils.datasets import LoadStreams, LoadImages
 from ro_yolov7.utils.general import check_img_size, check_imshow, non_max_suppression, apply_classifier, \
     scale_coords, xyxy2xywh, strip_optimizer, increment_path
-from ro_yolov7.utils.plots import plot_one_box
+from ro_yolov7.utils.plots import plot_one_box, show_image
 from ro_yolov7.utils.torch_utils import select_device, load_classifier, time_synchronized, TracedModel
-from ro_yolov7.utils.image_io import imwrite
+from ro_yolov7.utils.image_io import imwrite, VideoWriter
 
 
 def detect(save_img=False):
@@ -133,8 +132,7 @@ def detect(save_img=False):
 
             # Stream results
             if view_img:
-                cv2.imshow(str(p), im0)
-                cv2.waitKey(1)  # 1 millisecond
+                show_image(str(p), im0)
 
             # Save results (image with detections)
             if save_img:
@@ -144,17 +142,18 @@ def detect(save_img=False):
                 else:  # 'video' or 'stream'
                     if vid_path != save_path:  # new video
                         vid_path = save_path
-                        if isinstance(vid_writer, cv2.VideoWriter):
+                        if vid_writer is not None:
                             vid_writer.release()  # release previous video writer
                         if vid_cap:  # video
-                            fps = vid_cap.get(cv2.CAP_PROP_FPS)
-                            w = int(vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                            h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                            fps = vid_cap.fps
                         else:  # stream
-                            fps, w, h = 30, im0.shape[1], im0.shape[0]
+                            fps = 30
                             save_path += '.mp4'
-                        vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
+                        vid_writer = VideoWriter(save_path, fps)
                     vid_writer.write(im0)
+
+    if vid_writer is not None:
+        vid_writer.release()
 
     if save_txt or save_img:
         s = f"\n{len(list(save_dir.glob('labels/*.txt')))} labels saved to {save_dir / 'labels'}" if save_txt else ''
