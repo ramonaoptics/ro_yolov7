@@ -1,7 +1,8 @@
 from boundingbox import BoundingBox
 
-import cv2
 import numpy as np
+
+from ro_yolov7.utils.image_ops import resize
 
 def preprocess(img, input_shape, letter_box=True):
     if letter_box:
@@ -14,13 +15,13 @@ def preprocess(img, input_shape, letter_box=True):
         else:
             new_w = int(img_w * new_h / img_h)
             offset_w = (input_shape[1] - new_w) // 2
-        resized = cv2.resize(img, (new_w, new_h))
+        resized = resize(img, (new_w, new_h))
         img = np.full((input_shape[0], input_shape[1], 3), 127, dtype=np.uint8)
         img[offset_h:(offset_h + new_h), offset_w:(offset_w + new_w), :] = resized
     else:
-        img = cv2.resize(img, (input_shape[1], input_shape[0]))
+        img = resize(img, (input_shape[1], input_shape[0]))
 
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    img = img[..., ::-1]  # BGR to RGB
     img = img.transpose((2, 0, 1)).astype(np.float32)
     img /= 255.0
     return img

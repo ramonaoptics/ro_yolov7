@@ -45,7 +45,7 @@ nvidia-docker run --name yolov7 -it -v your_coco_path/:/coco/ -v your_code_path/
 
 # apt install required packages
 apt update
-apt install -y zip htop screen libgl1-mesa-glx
+apt install -y zip htop screen
 
 # pip install required packages
 pip install seaborn thop
@@ -133,7 +133,7 @@ See [reparameterization.ipynb](tools/reparameterization.ipynb)
 
 ## Inference
 
-On video:
+On video (reading and writing video needs imageio and its ffmpeg plugin, `pip install ro-yolov7[video]` or `pip install imageio imageio-ffmpeg`):
 ``` shell
 python detect.py --weights yolov7.pt --conf 0.25 --img-size 640 --source yourvideo.mp4
 ```

@@ -15,7 +15,6 @@ from pathlib import Path
 from threading import Thread
 from warnings import warn
 
-import cv2
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -30,8 +29,11 @@ from tqdm import tqdm
 
 from ro_yolov7.utils.general import xyxy2xywh, xywh2xyxy, xywhn2xyxy, xyn2xy, segment2box, segments2boxes, \
     resample_segments, clean_str
+from ro_yolov7.utils.image_io import imread, imwrite, imdecode, is_tiff_path, tiff_size, \
+    IMREAD_GRAYSCALE, IMREAD_UNCHANGED, VideoReader
+from ro_yolov7.utils.image_ops import resize, warp_affine, warp_perspective, rotation_matrix_2d, \
+    bgr_to_hsv, hsv_to_bgr, rgb_to_yuv, yuv_to_rgb, equalize_hist, polygon_mask, clahe as apply_clahe
 from ro_yolov7.utils.torch_utils import torch_distributed_zero_first
-from ro_yolov7.utils.image_io import imread, imwrite, imdecode, is_tiff_path, tiff_size
 
 # Parameters
 help_url = "https://github.com/ultralytics/yolov5/wiki/Train-Custom-Data"
@@ -256,8 +258,8 @@ class LoadImages:  # for inference
 
     def new_video(self, path):
         self.frame = 0
-        self.cap = cv2.VideoCapture(path)
-        self.nframes = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        self.cap = VideoReader(path)
+        self.nframes = self.cap.frame_count
 
     def __len__(self):
         return self.nf  # number of files
@@ -275,8 +277,7 @@ class LoadWebcam:  # for inference
         # pipe = 'http://wmccpinetop.axiscam.net/mjpg/video.mjpg'  # IP golf camera
 
         self.pipe = pipe
-        self.cap = cv2.VideoCapture(pipe)  # video capture object
-        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 3)  # set buffer size
+        self.cap = VideoReader(pipe)  # video capture object
 
     def __iter__(self):
         self.count = -1
@@ -284,15 +285,11 @@ class LoadWebcam:  # for inference
 
     def __next__(self):
         self.count += 1
-        if cv2.waitKey(1) == ord("q"):  # q to quit
-            self.cap.release()
-            cv2.destroyAllWindows()
-            raise StopIteration
 
         # Read frame
         if self.pipe == 0:  # local camera
             ret_val, img0 = self.cap.read()
-            img0 = cv2.flip(img0, 1)  # flip left-right
+            img0 = img0[:, ::-1]  # flip left-right
         else:  # IP camera
             n = 0
             while True:
@@ -349,11 +346,10 @@ class LoadStreams:  # multiple IP or RTSP cameras
                 import pafy
 
                 url = pafy.new(url).getbest(preftype="mp4").url
-            cap = cv2.VideoCapture(url)
+            cap = VideoReader(url)
             assert cap.isOpened(), f"Failed to open {s}"
-            w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            self.fps = cap.get(cv2.CAP_PROP_FPS) % 100
+            w, h = cap.width, cap.height
+            self.fps = cap.fps % 100
 
             _, self.imgs[i] = cap.read()  # guarantee first frame
             thread = Thread(target=self.update, args=([i, cap]), daemon=True)
@@ -397,9 +393,6 @@ class LoadStreams:  # multiple IP or RTSP cameras
     def __next__(self):
         self.count += 1
         img0 = self.imgs.copy()
-        if cv2.waitKey(1) == ord("q"):  # q to quit
-            cv2.destroyAllWindows()
-            raise StopIteration
 
         # Letterbox
         img = [
@@ -1046,7 +1039,7 @@ def load_image(self, index):
     if img is None:  # not cached
         path = self.img_files[index]
         num_channels = getattr(self, "num_channels", 1)
-        flags = cv2.IMREAD_GRAYSCALE if num_channels == 1 else cv2.IMREAD_UNCHANGED
+        flags = IMREAD_GRAYSCALE if num_channels == 1 else IMREAD_UNCHANGED
 
         if getattr(self, "tar_shard_mode", False):
             tar_p, member = split_tar_member_ref(path)
@@ -1072,11 +1065,8 @@ def load_image(self, index):
         h0, w0 = img.shape[:2]  # orig hw
         r = self.img_size / max(h0, w0)  # resize image to img_size
         if r != 1:  # always resize down, only resize up if training with augmentation
-            interp = cv2.INTER_AREA if r < 1 and not self.augment else cv2.INTER_LINEAR
-            img = cv2.resize(img, (int(w0 * r), int(h0 * r)), interpolation=interp)
-            # cv2.resize drops a trailing singleton channel; restore to (H, W, C)
-            if img.ndim == 2:
-                img = img[:, :, None]
+            interp = "area" if r < 1 and not self.augment else "linear"
+            img = resize(img, (int(w0 * r), int(h0 * r)), interpolation=interp)
         return img, (h0, w0), img.shape[:2]  # img, hw_original, hw_resized
     else:
         return (
@@ -1088,7 +1078,8 @@ def load_image(self, index):
 
 def augment_hsv(img, hgain=0.5, sgain=0.5, vgain=0.5):
     r = np.random.uniform(-1, 1, 3) * [hgain, sgain, vgain] + 1  # random gains
-    hue, sat, val = cv2.split(cv2.cvtColor(img, cv2.COLOR_BGR2HSV))
+    hsv = bgr_to_hsv(img)  # OpenCV's ranges: hue 0..180, saturation and value 0..255
+    hue, sat, val = hsv[..., 0], hsv[..., 1], hsv[..., 2]
     dtype = img.dtype  # uint8
 
     x = np.arange(0, 256, dtype=np.int16)
@@ -1096,23 +1087,21 @@ def augment_hsv(img, hgain=0.5, sgain=0.5, vgain=0.5):
     lut_sat = np.clip(x * r[1], 0, 255).astype(dtype)
     lut_val = np.clip(x * r[2], 0, 255).astype(dtype)
 
-    img_hsv = cv2.merge(
-        (cv2.LUT(hue, lut_hue), cv2.LUT(sat, lut_sat), cv2.LUT(val, lut_val))
+    img_hsv = np.stack(
+        (lut_hue[hue], lut_sat[sat], lut_val[val]), axis=-1
     ).astype(dtype)
-    cv2.cvtColor(img_hsv, cv2.COLOR_HSV2BGR, dst=img)  # no return needed
+    img[...] = hsv_to_bgr(img_hsv)  # no return needed
 
 
 def hist_equalize(img, clahe=True, bgr=False):
     # Equalize histogram on BGR image 'img' with img.shape(n,m,3) and range 0-255
-    yuv = cv2.cvtColor(img, cv2.COLOR_BGR2YUV if bgr else cv2.COLOR_RGB2YUV)
+    yuv = rgb_to_yuv(img[..., ::-1] if bgr else img)
     if clahe:
-        c = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-        yuv[:, :, 0] = c.apply(yuv[:, :, 0])
+        yuv[:, :, 0] = apply_clahe(yuv[:, :, 0], clip_limit=2.0, tile_grid_size=(8, 8))
     else:
-        yuv[:, :, 0] = cv2.equalizeHist(yuv[:, :, 0])  # equalize Y channel histogram
-    return cv2.cvtColor(
-        yuv, cv2.COLOR_YUV2BGR if bgr else cv2.COLOR_YUV2RGB
-    )  # convert YUV image to RGB
+        yuv[:, :, 0] = equalize_hist(yuv[:, :, 0])  # equalize Y channel histogram
+    rgb = yuv_to_rgb(yuv)  # convert YUV image to RGB
+    return np.ascontiguousarray(rgb[..., ::-1]) if bgr else rgb
 
 
 def load_mosaic(self, index):
@@ -1375,19 +1364,13 @@ def copy_paste(img, labels, segments, probability=0.5):
             if (ioa < 0.30).all():  # allow 30% obscuration of existing labels
                 labels = np.concatenate((labels, [[l[0], *box]]), 0)
                 segments.append(np.concatenate((w - s[:, 0:1], s[:, 1:2]), 1))
-                cv2.drawContours(
-                    im_new,
-                    [segments[j].astype(np.int32)],
-                    -1,
-                    (255, 255, 255),
-                    cv2.FILLED,
-                )
+                im_new |= polygon_mask((h, w), [segments[j]])[:, :, None]
 
-        result = cv2.bitwise_and(src1=img, src2=im_new)
-        result = cv2.flip(result, 1)  # augment segments (flip left-right)
+        result = img & im_new
+        result = result[:, ::-1]  # augment segments (flip left-right)
         i = result > 0  # pixels to replace
         # i[:, :] = result.max(2).reshape(h, w, 1)  # act over ch
-        img[i] = result[i]  # cv2.imwrite('debug.jpg', img)  # debug
+        img[i] = result[i]  # imwrite('debug.jpg', img)  # debug
 
     return img, labels, segments
 
@@ -1399,14 +1382,12 @@ def remove_background(img, labels, segments):
     im_new = np.zeros(img.shape, np.uint8)
     img_new = np.ones(img.shape, np.uint8) * 114
     for j in range(n):
-        cv2.drawContours(
-            im_new, [segments[j].astype(np.int32)], -1, (255, 255, 255), cv2.FILLED
-        )
+        im_new |= polygon_mask((h, w), [segments[j]])[:, :, None]
 
-        result = cv2.bitwise_and(src1=img, src2=im_new)
+        result = img & im_new
 
         i = result > 0  # pixels to replace
-        img_new[i] = result[i]  # cv2.imwrite('debug.jpg', img)  # debug
+        img_new[i] = result[i]  # imwrite('debug.jpg', img)  # debug
 
     return img_new, labels, segments
 
@@ -1435,15 +1416,12 @@ def sample_segments(img, labels, segments, probability=0.5):
             sample_labels.append(l[0])
 
             mask = np.zeros(img.shape, np.uint8)
-
-            cv2.drawContours(
-                mask, [segments[j].astype(np.int32)], -1, (255, 255, 255), cv2.FILLED
-            )
+            mask[...] = polygon_mask((h, w), [segments[j]])[:, :, None]
             sample_masks.append(mask[box[1] : box[3], box[0] : box[2], :])
 
-            result = cv2.bitwise_and(src1=img, src2=mask)
+            result = img & mask
             i = result > 0  # pixels to replace
-            mask[i] = result[i]  # cv2.imwrite('debug.jpg', img)  # debug
+            mask[i] = result[i]  # imwrite('debug.jpg', img)  # debug
             # print(box)
             sample_images.append(mask[box[1] : box[3], box[0] : box[2], :])
 
@@ -1504,28 +1482,16 @@ def letterbox(
     dh /= 2
 
     if shape[::-1] != new_unpad:  # resize
-        img = cv2.resize(img, new_unpad, interpolation=cv2.INTER_LINEAR)
-        # cv2.resize drops a trailing singleton channel; restore to (H, W, C)
-        if img.ndim == 2:
-            img = img[:, :, None]
+        img = resize(img, new_unpad, interpolation="linear")
     top, bottom = int(round(dh - 0.1)), int(round(dh + 0.1))
     left, right = int(round(dw - 0.1)), int(round(dw + 0.1))
-    border_value = _match_border_value(color, img)
-    img = _apply_channelwise(
-        lambda arr, bv: cv2.copyMakeBorder(
-            arr, top, bottom, left, right, cv2.BORDER_CONSTANT, value=bv
-        ),
-        img,
-        border_value,
-    )
+    img = _pad_constant(img, top, bottom, left, right, _match_border_value(color, img))
     return img, ratio, (dw, dh)
 
 
 def _match_border_value(color, img):
-    # OpenCV border routines expect the fill value to have exactly as many
-    # elements as the image has channels. The default (114, 114, 114) works for
-    # 1- and 3-channel images but needs to be extended for multi-channel (e.g.
-    # 4+) microscopy data.
+    # One fill value per channel. The default (114, 114, 114) suits 1- and
+    # 3-channel images and is extended for multi-channel (e.g. 4+) data.
     if img.ndim == 2:
         channels = 1
     else:
@@ -1549,25 +1515,13 @@ def _match_border_value(color, img):
     return tuple(result)
 
 
-def _apply_channelwise(op, img, border_value):
-    # OpenCV geometric routines accept a Scalar with at most 4 elements, so
-    # they can't directly handle images with 5+ channels. Split the channel
-    # axis into chunks of <=4, apply the operation per chunk with the matching
-    # slice of border_value, and concatenate the results back together.
-    channels = 1 if img.ndim == 2 else img.shape[2]
-    if channels <= 4:
-        return op(img, border_value)
-
-    chunks = []
-    for start in range(0, channels, 4):
-        end = min(start + 4, channels)
-        sub = img[..., start:end]
-        sub_bv = tuple(border_value[start:end])
-        out = op(sub, sub_bv)
-        if out.ndim == 2:
-            out = out[:, :, None]
-        chunks.append(out)
-    return np.concatenate(chunks, axis=2)
+def _pad_constant(img, top, bottom, left, right, border_value):
+    # Pad (H, W) or (H, W, C) with one constant per channel.
+    h, w = img.shape[:2]
+    out = np.empty((h + top + bottom, w + left + right) + img.shape[2:], dtype=img.dtype)
+    out[...] = border_value if img.ndim == 3 else border_value[0]
+    out[top : top + h, left : left + w] = img
+    return out
 
 
 def random_perspective(
@@ -1603,7 +1557,7 @@ def random_perspective(
     # a += random.choice([-180, -90, 0, 90])  # add 90deg rotations to small rotations
     s = random.uniform(1 - scale, 1.1 + scale)
     # s = 2 ** random.uniform(-scale, scale)
-    R[:2] = cv2.getRotationMatrix2D(angle=a, center=(0, 0), scale=s)
+    R[:2] = rotation_matrix_2d(angle=a, center=(0, 0), scale=s)
 
     # Shear
     S = np.eye(3)
@@ -1624,23 +1578,9 @@ def random_perspective(
     if (border[0] != 0) or (border[1] != 0) or (M != np.eye(3)).any():  # image changed
         border_value = _match_border_value((114, 114, 114), img)
         if perspective:
-            img = _apply_channelwise(
-                lambda arr, bv: cv2.warpPerspective(
-                    arr, M, dsize=(width, height), borderValue=bv
-                ),
-                img,
-                border_value,
-            )
+            img = warp_perspective(img, M, dsize=(width, height), border_value=border_value)
         else:  # affine
-            img = _apply_channelwise(
-                lambda arr, bv: cv2.warpAffine(
-                    arr, M[:2], dsize=(width, height), borderValue=bv
-                ),
-                img,
-                border_value,
-            )
-        if img.ndim == 2:
-            img = img[:, :, None]
+            img = warp_affine(img, M[:2], dsize=(width, height), border_value=border_value)
 
     # Visualize
     # import matplotlib.pyplot as plt
@@ -1809,8 +1749,8 @@ def pastein(image, labels, sample_labels, sample_images, sample_masks):
             r_h = int(hs * r_scale)
 
             if (r_w > 10) and (r_h > 10):
-                r_mask = cv2.resize(sample_masks[sel_ind], (r_w, r_h))
-                r_image = cv2.resize(sample_images[sel_ind], (r_w, r_h))
+                r_mask = resize(sample_masks[sel_ind], (r_w, r_h))
+                r_image = resize(sample_images[sel_ind], (r_w, r_h))
                 temp_crop = image[ymin : ymin + r_h, xmin : xmin + r_w]
                 m_ind = r_mask > 0
                 if m_ind.astype(np.int32).sum() > 60:

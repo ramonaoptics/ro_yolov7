@@ -11,13 +11,13 @@ import time
 import warnings
 from pathlib import Path
 
-import cv2
 import numpy as np
 import torch
 import torchvision
 import yaml
 
 from ro_yolov7.utils.google_utils import gsutil_getsize
+from ro_yolov7.utils.image_ops import resize
 from ro_yolov7.utils.metrics import fitness
 from ro_yolov7.utils.torch_utils import init_torch_seeds
 
@@ -74,15 +74,17 @@ def check_img_size(img_size, s=32):
 def check_imshow():
     # Check if environment supports image displays
     try:
-        assert not isdocker(), "cv2.imshow() is disabled in Docker environments"
-        cv2.imshow("test", np.zeros((1, 1, 3)))
-        cv2.waitKey(1)
-        cv2.destroyAllWindows()
-        cv2.waitKey(1)
+        assert not isdocker(), "image displays are disabled in Docker environments"
+        import matplotlib
+
+        backend = matplotlib.get_backend().lower()
+        assert backend not in ("agg", "cairo", "pdf", "pgf", "ps", "svg", "template"), (
+            f"matplotlib backend {backend} cannot open windows"
+        )
         return True
     except Exception as e:
         print(
-            f"WARNING: Environment does not support cv2.imshow() or PIL Image.show() image displays\n{e}"
+            f"WARNING: Environment does not support image displays\n{e}"
         )
         return False
 
@@ -1010,8 +1012,7 @@ def apply_classifier(x, model, img, im0):
             ims = []
             for j, a in enumerate(d):  # per item
                 cutout = im0[i][int(a[1]) : int(a[3]), int(a[0]) : int(a[2])]
-                im = cv2.resize(cutout, (224, 224))  # BGR
-                # cv2.imwrite('test%i.jpg' % j, cutout)
+                im = resize(cutout, (224, 224))  # BGR
 
                 im = im[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, to 3x416x416
                 im = np.ascontiguousarray(im, dtype=np.float32)  # uint8 to float32

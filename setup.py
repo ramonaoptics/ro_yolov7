@@ -9,8 +9,7 @@ requirements = [
     "numpy>=2.0",
     "onnx",
     "onnxscript",
-    "opencv-python",
-    "Pillow",
+    "Pillow>=10.1",
     "PyYAML",
     "requests",
     "scipy",
@@ -23,7 +22,7 @@ requirements = [
 
 setup(
     name="ro-yolov7",
-    version="0.8.0",
+    version="0.9.0",
     author="Chien-Yao Wang, Alexey Bochkovskiy, Hong-Yuan Mark Liao, John Efromon, Mark Harfouche",
     description="YOLOv7: Trainable bag-of-freebies sets new state-of-the-art for real-time object detectors",
     long_description=long_description,
@@ -39,6 +38,7 @@ setup(
     },
     include_package_data=True,
     install_requires=requirements,
+    extras_require={"video": ["imageio", "imageio-ffmpeg"]},
     python_requires=">=3.10",
     entry_points={
         "console_scripts": [
